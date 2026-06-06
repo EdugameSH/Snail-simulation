@@ -358,6 +358,12 @@ body {
       <div id="terrarium-wrap">
         <img id="terrarium-img" src="" alt="사육상자">
         <img id="hide-item" src="" alt="은신처">
+        <!-- 달팽이 (사육상자 좌표계 기준 절대위치) -->
+        <img id="snail-img" src="images/기본달팽이1.png" alt="달팽이" draggable="false"
+          style="position:absolute; display:none; z-index:8;
+                 width:22%; max-width:100px; height:auto;
+                 transition: none;
+                 filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));">
       </div>
     </div>
 
@@ -393,16 +399,21 @@ const IMGS = {
   hide_pumpkin: 'images/호박은신처.png',
   hide_coconut: 'images/코코넛은신처.png',
   spray:        'images/분무기.png',
+  snail1:       'images/기본달팽이1.png',
+  snail2:       'images/기본달팽이2.png',
 };
 
 let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0 };
-const STEPS = ['quiz1','boxSelect','quiz2','cocopeat','hideSelect','spray'];
+const STEPS = ['quiz1','boxSelect','quiz2','cocopeat','hideSelect','spray','snail'];
 
 // 습도 관련
 let humidityTimer = null;
 const HUMIDITY_MAX = 100;
 const HUMIDITY_DRAIN_RATE = 0.8;  // 초당 감소량 (%)
 const HUMIDITY_PER_SPRAY  = 25;   // 한 번 뿌릴 때 증가량
+
+// 달팽이 이동 관련
+let snailAnimTimer = null;
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -472,6 +483,9 @@ function renderStep() {
 
   } else if (step === 'spray') {
     showSprayStep();
+
+  } else if (step === 'snail') {
+    showSnailStep();
   }
 }
 
@@ -685,6 +699,115 @@ function confirmHide() {
   }, 1200);
 }
 
+// ===== 달팽이 단계 =====
+function showSnailStep() {
+  setSidePanel(`
+    <div class="step-badge">🐌 달팽이 입양</div>
+    <div class="info-box">
+      드디어 달팽이가 왔어요!<br>
+      달팽이가 사육상자 안을 자유롭게 돌아다닙니다.
+    </div>
+    <div style="text-align:center; padding: 20px 0 10px;">
+      <div style="font-size:52px; animation:snailBounce 2s ease-in-out infinite">🐌</div>
+      <div style="font-family:'Jua',sans-serif; font-size:15px; color:#2e7d32; margin-top:10px;">
+        달팽이가 집에 왔어요!
+      </div>
+      <div style="font-size:12px; color:#777; margin-top:6px; line-height:1.6;">
+        천천히, 하지만 꾸준히<br>돌아다니고 있답니다 🌿
+      </div>
+    </div>
+    <button class="next-btn" style="margin-top:auto;" onclick="alert('달팽이 키우기 계속 업데이트 예정! 🐌')">계속하기 →</button>
+  `);
+  setProgress(STEPS.length);
+  startSnailMovement();
+}
+
+function startSnailMovement() {
+  const snail = document.getElementById('snail-img');
+  if (!snail) return;
+
+  // 사육상자 내부 유효 범위 (퍼센트 기준)
+  // 사육상자 이미지에서 실제 내부 공간: 좌우 10~90%, 상하 35~78% 정도
+  const BOUNDS = { left:8, right:78, top:36, bottom:72 };
+  // 달팽이 크기(%) 고려해서 right/bottom 조정
+  const SNAIL_W = 22; // width %
+  const SNAIL_H = 14; // 대략적인 height %
+
+  let x = 30, y = 55;       // 현재 위치 (%)
+  let tx = 50, ty = 60;     // 목표 위치
+  let frameIdx = 0;         // 애니메이션 프레임 (0=img1, 1=img2)
+  let frameTimer = 0;       // 프레임 전환 카운터
+  let restTimer = 0;        // 멈춤 카운터
+  let isResting = false;
+  let facingLeft = false;
+
+  snail.style.display = 'block';
+  snail.style.left = x + '%';
+  snail.style.top  = y + '%';
+
+  function pickNewTarget() {
+    tx = BOUNDS.left + Math.random() * (BOUNDS.right  - BOUNDS.left  - SNAIL_W);
+    ty = BOUNDS.top  + Math.random() * (BOUNDS.bottom - BOUNDS.top   - SNAIL_H);
+    // 가끔 잠시 멈춤
+    isResting = Math.random() < 0.25;
+    restTimer = isResting ? (2000 + Math.random() * 3000) : 0;
+  }
+  pickNewTarget();
+
+  const SPEED = 0.018; // % per ms — 달팽이처럼 느리게
+
+  let lastTime = null;
+  function tick(ts) {
+    if (!lastTime) lastTime = ts;
+    const dt = ts - lastTime;
+    lastTime = ts;
+
+    if (isResting) {
+      restTimer -= dt;
+      if (restTimer <= 0) { isResting = false; pickNewTarget(); }
+      snailAnimTimer = requestAnimationFrame(tick);
+      return;
+    }
+
+    const dx = tx - x;
+    const dy = ty - y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    if (dist < 0.5) {
+      // 목표 도달 → 잠깐 쉬고 새 목표
+      pickNewTarget();
+    } else {
+      const step = Math.min(SPEED * dt, dist);
+      x += (dx / dist) * step;
+      y += (dy / dist) * step;
+
+      // 좌우 방향 전환
+      facingLeft = dx < 0;
+      snail.style.transform = facingLeft ? 'scaleX(-1)' : 'scaleX(1)';
+
+      snail.style.left = x + '%';
+      snail.style.top  = y + '%';
+
+      // 프레임 전환: 600ms마다
+      frameTimer += dt;
+      if (frameTimer > 600) {
+        frameTimer = 0;
+        frameIdx = 1 - frameIdx;
+        snail.src = frameIdx === 0 ? IMGS.snail1 : IMGS.snail2;
+      }
+    }
+
+    snailAnimTimer = requestAnimationFrame(tick);
+  }
+
+  if (snailAnimTimer) cancelAnimationFrame(snailAnimTimer);
+  snailAnimTimer = requestAnimationFrame(tick);
+}
+
+function stopSnailMovement() {
+  if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
+}
+
 function showCompletionPanel() {
   if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
   setSidePanel(`
@@ -892,7 +1015,11 @@ function updateHumidityUI() {
 function finishSpray() {
   if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
   showToast('💧 촉촉하게 완료!', '#e3f2fd', '#0277bd');
-  setTimeout(() => { hideToast(); showCompletionPanel(); }, 1200);
+  setTimeout(() => {
+    hideToast();
+    gameState.step++;
+    renderStep();
+  }, 1200);
 }
 
 // ===== 유틸 =====
