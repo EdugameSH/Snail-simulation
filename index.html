@@ -123,19 +123,21 @@ body {
 /* 은신처 */
 #hide-item {
   position: absolute;
-  bottom: 20%; left: 70%;
+  bottom: 16%; left: 70%;
   transform: translateX(-50%);
   width: 18%; max-width: 80px; height: auto;
   display: none;
-  animation: itemAppear 0.5s cubic-bezier(0.34,1.56,0.64,1);
+  animation: itemAppear 0.4s cubic-bezier(0.34,1.56,0.64,1);
   z-index: 6;
+  transition: opacity 0.3s;
 }
+#hide-item.preview { opacity: 0.5; }
 @keyframes itemAppear {
   from { transform: translateX(-50%) scale(0) rotate(-15deg); opacity:0; }
   to   { transform: translateX(-50%) scale(1) rotate(0deg);   opacity:1; }
 }
 
-/* 코코피트 봉투 */
+/* 코코피트 봉투 (드래그 중 절대위치) */
 #coco-bag {
   position: absolute;
   width: 70px;
@@ -147,6 +149,15 @@ body {
 }
 #coco-bag:active { cursor: grabbing; }
 
+/* 패널 내 봉투 정적 표시 */
+#coco-bag-static {
+  width: 64px; height: auto;
+  cursor: grab;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.2));
+  user-select: none; touch-action: none;
+  display: block; margin: 8px auto 4px;
+}
+
 #drop-hint {
   position: absolute;
   font-size: 11px; color: #5d4037;
@@ -155,6 +166,25 @@ body {
   pointer-events: none; display: none;
   z-index: 26; white-space: nowrap;
   font-family: 'Jua', sans-serif;
+}
+
+/* 은신처 미리보기: 반투명 */
+#hide-item.preview { opacity: 0.5; }
+
+/* 물방울 날아가기 */
+@keyframes dropFly {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0.9; }
+  80%  { opacity: 0.6; }
+  100% { transform: translate(var(--tx), var(--ty)) scale(0.3); opacity: 0; }
+}
+
+/* 분무기 흔들기 */
+@keyframes sprayShake {
+  0%   { transform: rotate(0deg); }
+  20%  { transform: rotate(-12deg) translateX(-4px); }
+  50%  { transform: rotate(8deg)  translateX(2px); }
+  75%  { transform: rotate(-5deg); }
+  100% { transform: rotate(0deg); }
 }
 
 /* ===== 오른쪽 패널 ===== */
@@ -331,8 +361,13 @@ body {
       </div>
     </div>
 
-    <!-- 코코피트 봉투 -->
+    <!-- 코코피트 봉투 (드래그 중 절대위치용) -->
     <img id="coco-bag" src="images/코코피트봉투.png" alt="코코피트" draggable="false">
+    <!-- 분무기 (드래그 중 절대위치용) -->
+    <img id="spray-bag" src="images/분무기.png" alt="분무기" draggable="false"
+      style="position:absolute;width:70px;cursor:grab;z-index:25;
+             filter:drop-shadow(0 4px 8px rgba(0,0,0,0.25));
+             user-select:none;display:none;touch-action:none;">
     <div id="drop-hint">📦 사육상자로 드래그!</div>
 
     <!-- 퀴즈 팝업 -->
@@ -357,10 +392,17 @@ const IMGS = {
   hide_mushroom:'images/버섯은신처.png',
   hide_pumpkin: 'images/호박은신처.png',
   hide_coconut: 'images/코코넛은신처.png',
+  spray:        'images/분무기.png',
 };
 
-let gameState = { step:0, selectedBox:null, selectedHide:null };
-const STEPS = ['quiz1','boxSelect','quiz2','cocopeat','hideSelect'];
+let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0 };
+const STEPS = ['quiz1','boxSelect','quiz2','cocopeat','hideSelect','spray'];
+
+// 습도 관련
+let humidityTimer = null;
+const HUMIDITY_MAX = 100;
+const HUMIDITY_DRAIN_RATE = 0.8;  // 초당 감소량 (%)
+const HUMIDITY_PER_SPRAY  = 25;   // 한 번 뿌릴 때 증가량
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -427,6 +469,9 @@ function renderStep() {
 
   } else if (step === 'hideSelect') {
     showHideSelect();
+
+  } else if (step === 'spray') {
+    showSprayStep();
   }
 }
 
@@ -474,17 +519,21 @@ function selectBox(color, el) {
   document.querySelectorAll('.box-option').forEach(b => b.classList.remove('selected'));
   el.classList.add('selected');
   gameState.selectedBox = color;
+  // 즉시 플레이박스에 미리보기
+  const wrap = document.getElementById('terrarium-wrap');
+  const img  = document.getElementById('terrarium-img');
+  img.style.transition = 'opacity 0.25s';
+  img.style.opacity = '0';
+  wrap.style.display = 'block';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    img.src = IMGS['box_' + color];
+    img.style.opacity = '1';
+  }));
   document.getElementById('box-next-btn').disabled = false;
 }
 
 function confirmBox() {
   if (!gameState.selectedBox) return;
-  const wrap = document.getElementById('terrarium-wrap');
-  const img  = document.getElementById('terrarium-img');
-  img.src = IMGS['box_' + gameState.selectedBox];
-  img.style.opacity = '0';
-  wrap.style.display = 'block';
-  requestAnimationFrame(() => requestAnimationFrame(() => { img.style.opacity = '1'; }));
   gameState.step++;
   renderStep();
 }
@@ -498,70 +547,70 @@ function showCocopeatStep() {
       코코피트는 달팽이가 속으로 파고들 수 있도록 충분한 높이로 깔아주어야 합니다.
     </div>
     <div class="panel-title">코코피트 봉투를 사육상자로<br>드래그해봐요! 👆</div>
-    <div class="panel-desc">봉투를 잡아서 왼쪽 사육상자에 가져다 놓으세요</div>
+    <img id="coco-bag-static" src="images/코코피트봉투.png" alt="코코피트" draggable="false">
+    <div style="font-size:11px;color:#888;text-align:center;">← 잡아서 왼쪽으로 드래그!</div>
   `);
 
-  // 봉투 초기 위치: 사육상자 오른쪽 하단 안쪽 (동그라미 위치)
-  // play-area 기준: play-area 우측 끝 근처, 사육상자 하단부
+  // 패널 내 정적 봉투에 드래그 이벤트 연결
   requestAnimationFrame(() => {
-    const gc       = document.getElementById('game-container').getBoundingClientRect();
-    const sideW    = 270;
-    const playW    = gc.width - sideW;
-    const bag      = document.getElementById('coco-bag');
-    const hint     = document.getElementById('drop-hint');
-
-    // 사육상자 오른쪽 아래 — play-area 우측 끝에서 약간 안쪽, 세로 중하단
-    bag.style.left  = (playW * 0.72) + 'px';
-    bag.style.top   = (gc.height * 0.52) + 'px';
-    bag.style.display = 'block';
-
-    hint.style.left  = (playW * 0.56) + 'px';
-    hint.style.top   = (gc.height * 0.44) + 'px';
-    hint.style.display = 'block';
-
-    makeDraggable(bag);
+    const staticBag = document.getElementById('coco-bag-static');
+    if (staticBag) initCocoDrag(staticBag);
   });
 }
 
-function makeDraggable(el) {
+function initCocoDrag(staticEl) {
   let dragging = false, ox, oy;
+  const bag = document.getElementById('coco-bag');
+
   function getPos(e) { return e.touches ? {x:e.touches[0].clientX,y:e.touches[0].clientY} : {x:e.clientX,y:e.clientY}; }
 
   function onStart(e) {
-    e.preventDefault(); dragging = true;
-    const p = getPos(e), r = el.getBoundingClientRect();
-    ox = p.x - r.left; oy = p.y - r.top;
-    el.style.transition = 'none'; el.style.zIndex = 40;
-    document.getElementById('drop-hint').style.display = 'none';
+    e.preventDefault();
+    dragging = true;
+    const p = getPos(e);
+    const sr = staticEl.getBoundingClientRect();
+    ox = p.x - sr.left; oy = p.y - sr.top;
+
+    // 같은 위치에 절대위치 봉투 띄우고 정적 봉투 숨기기
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    bag.style.left = (sr.left - cr.left) + 'px';
+    bag.style.top  = (sr.top  - cr.top)  + 'px';
+    bag.style.transition = 'none';
+    bag.style.display = 'block';
+    staticEl.style.opacity = '0';
   }
   function onMove(e) {
     if (!dragging) return; e.preventDefault();
     const p = getPos(e), cr = document.getElementById('game-container').getBoundingClientRect();
-    el.style.left = (p.x - cr.left - ox) + 'px';
-    el.style.top  = (p.y - cr.top  - oy) + 'px';
+    bag.style.left = (p.x - cr.left - ox) + 'px';
+    bag.style.top  = (p.y - cr.top  - oy) + 'px';
   }
   function onEnd() {
     if (!dragging) return; dragging = false;
-    const er = el.getBoundingClientRect();
+    const er = bag.getBoundingClientRect();
     const cr = document.getElementById('game-container').getBoundingClientRect();
     const sideW = 270;
     const playW = cr.width - sideW;
     const elCX  = er.left + er.width  / 2 - cr.left;
     const elCY  = er.top  + er.height / 2 - cr.top;
-    // 플레이박스(왼쪽 영역) 안에 드롭됐으면 성공
+
     if (elCX < playW && elCY > 0 && elCY < cr.height) {
       applyCocoPeat();
     } else {
-      // 원위치
-      el.style.transition = 'all 0.4s cubic-bezier(0.34,1.56,0.64,1)';
-      const gc = cr;
-      el.style.left = (playW * 0.72) + 'px';
-      el.style.top  = (gc.height * 0.52) + 'px';
-      document.getElementById('drop-hint').style.display = 'block';
+      // 원위치 (패널로 복귀)
+      const sr = staticEl.getBoundingClientRect();
+      bag.style.transition = 'all 0.35s cubic-bezier(0.34,1.56,0.64,1)';
+      bag.style.left = (sr.left - cr.left) + 'px';
+      bag.style.top  = (sr.top  - cr.top)  + 'px';
+      setTimeout(() => {
+        bag.style.display = 'none';
+        if (staticEl) staticEl.style.opacity = '1';
+      }, 360);
     }
   }
-  el.addEventListener('mousedown', onStart);
-  el.addEventListener('touchstart', onStart, {passive:false});
+
+  staticEl.addEventListener('mousedown', onStart);
+  staticEl.addEventListener('touchstart', onStart, {passive:false});
   document.addEventListener('mousemove', onMove);
   document.addEventListener('touchmove', onMove, {passive:false});
   document.addEventListener('mouseup', onEnd);
@@ -614,20 +663,27 @@ function selectHide(type, el) {
   document.querySelectorAll('.hide-option').forEach(b => b.classList.remove('selected'));
   el.classList.add('selected');
   gameState.selectedHide = type;
+  // 즉시 미리보기 (반투명)
+  const map = { mushroom:'hide_mushroom', pumpkin:'hide_pumpkin', coconut:'hide_coconut' };
+  const item = document.getElementById('hide-item');
+  item.src = IMGS[map[type]];
+  item.className = 'preview';
+  item.style.display = 'block';
   document.getElementById('hide-next-btn').disabled = false;
 }
 
 function confirmHide() {
   if (!gameState.selectedHide) return;
-  const map = { mushroom:'hide_mushroom', pumpkin:'hide_pumpkin', coconut:'hide_coconut' };
   const item = document.getElementById('hide-item');
-  item.src = IMGS[map[gameState.selectedHide]];
-  item.style.display = 'block';
+  // 반투명 → 완전 불투명으로 픽스
+  item.classList.remove('preview');
+  item.style.opacity = '1';
   showToast('🏠 은신처 완성!', '#e8f5e9', '#2e7d32');
   setTimeout(() => { hideToast(); showCompletionPanel(); }, 1200);
 }
 
 function showCompletionPanel() {
+  if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
   setSidePanel(`
     <div style="text-align:center; padding: 10px 0;">
       <div style="font-size:46px; margin-bottom:8px; animation:snailBounce 2s ease-in-out infinite">🐌</div>
@@ -639,6 +695,201 @@ function showCompletionPanel() {
     </div>
   `);
   setProgress(STEPS.length);
+}
+
+// ===== 분무기 단계 =====
+function showSprayStep() {
+  gameState.humidity = 0;
+  setSidePanel(`
+    <div class="step-badge">💧 습도 관리</div>
+
+    <!-- 습도 게이지 (항상 패널 상단에 표시) -->
+    <div style="margin-bottom:12px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+        <span style="font-family:'Jua',sans-serif; font-size:12px; color:#1565c0;">💧 습도</span>
+        <span id="humidity-pct" style="font-size:11px; color:#888;">0%</span>
+      </div>
+      <div style="background:#e3f2fd; border-radius:20px; height:14px; overflow:hidden; border:1px solid #bbdefb;">
+        <div id="humidity-bar"
+          style="height:100%; width:0%; border-radius:20px;
+                 background:linear-gradient(90deg,#4fc3f7,#0288d1);
+                 transition:width 0.4s ease;"></div>
+      </div>
+      <div id="humidity-warning" style="display:none; margin-top:5px;
+        background:#fff3e0; border-left:3px solid #ff9800; border-radius:0 8px 8px 0;
+        padding:5px 8px; font-size:11px; color:#e65100; line-height:1.4;">
+        ⚠️ 공기가 너무 건조해요!<br>분무기를 뿌려주세요.
+      </div>
+    </div>
+
+    <div class="info-box">
+      달팽이는 습한 환경을 좋아해요.<br>
+      분무기를 뿌려 촉촉하게 해주세요.
+    </div>
+    <div class="panel-title">분무기를 사육상자로<br>드래그해봐요! 💦</div>
+    <img id="spray-static" src="images/분무기.png" alt="분무기" draggable="false"
+      style="width:72px;height:auto;cursor:grab;display:block;margin:8px auto 4px;
+             filter:drop-shadow(0 3px 6px rgba(0,0,0,0.2));user-select:none;touch-action:none;">
+    <div style="font-size:11px;color:#888;text-align:center;">← 잡아서 왼쪽으로 드래그!</div>
+    <button class="next-btn" id="spray-done-btn" onclick="finishSpray()" disabled
+      style="margin-top:12px;">환경 설정 완료! ✓</button>
+  `);
+
+  requestAnimationFrame(() => {
+    const staticEl = document.getElementById('spray-static');
+    if (staticEl) initSprayDrag(staticEl);
+    startHumidityDrain();
+  });
+}
+
+function initSprayDrag(staticEl) {
+  let dragging = false, ox, oy;
+  const bag = document.getElementById('spray-bag');
+
+  function getPos(e) { return e.touches ? {x:e.touches[0].clientX,y:e.touches[0].clientY} : {x:e.clientX,y:e.clientY}; }
+
+  function onStart(e) {
+    e.preventDefault(); dragging = true;
+    const p = getPos(e), sr = staticEl.getBoundingClientRect();
+    ox = p.x - sr.left; oy = p.y - sr.top;
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    bag.style.left = (sr.left - cr.left) + 'px';
+    bag.style.top  = (sr.top  - cr.top)  + 'px';
+    bag.style.transition = 'none';
+    bag.style.display = 'block';
+    staticEl.style.opacity = '0';
+  }
+  function onMove(e) {
+    if (!dragging) return; e.preventDefault();
+    const p = getPos(e), cr = document.getElementById('game-container').getBoundingClientRect();
+    bag.style.left = (p.x - cr.left - ox) + 'px';
+    bag.style.top  = (p.y - cr.top  - oy) + 'px';
+  }
+  function onEnd() {
+    if (!dragging) return; dragging = false;
+    const er = bag.getBoundingClientRect();
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    const playW = cr.width - 270;
+    const elCX = er.left + er.width  / 2 - cr.left;
+    const elCY = er.top  + er.height / 2 - cr.top;
+
+    if (elCX < playW && elCY > 0 && elCY < cr.height) {
+      applySpray(bag, staticEl, cr);
+    } else {
+      // 원위치 복귀
+      const sr = staticEl.getBoundingClientRect();
+      bag.style.transition = 'all 0.35s cubic-bezier(0.34,1.56,0.64,1)';
+      bag.style.left = (sr.left - cr.left) + 'px';
+      bag.style.top  = (sr.top  - cr.top)  + 'px';
+      setTimeout(() => { bag.style.display = 'none'; staticEl.style.opacity = '1'; }, 360);
+    }
+  }
+
+  staticEl.addEventListener('mousedown', onStart);
+  staticEl.addEventListener('touchstart', onStart, {passive:false});
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('mouseup', onEnd);
+  document.addEventListener('touchend', onEnd);
+}
+
+function applySpray(bag, staticEl, cr) {
+  // 분무기 분사 위치 (사육상자 위)
+  const dropX = bag.getBoundingClientRect().left - cr.left + 35;
+  const dropY = bag.getBoundingClientRect().top  - cr.top  + 10;
+
+  // 물방울 애니메이션
+  sprayWaterDrops(dropX, dropY);
+
+  // 분무기 진동 애니메이션 후 복귀
+  bag.style.animation = 'sprayShake 0.4s ease';
+  setTimeout(() => {
+    bag.style.animation = '';
+    bag.style.transition = 'all 0.35s cubic-bezier(0.34,1.56,0.64,1)';
+    const sr = staticEl ? staticEl.getBoundingClientRect() : null;
+    if (sr) {
+      bag.style.left = (sr.left - cr.left) + 'px';
+      bag.style.top  = (sr.top  - cr.top)  + 'px';
+    }
+    setTimeout(() => {
+      bag.style.display = 'none';
+      if (staticEl) staticEl.style.opacity = '1';
+    }, 360);
+  }, 600);
+
+  // 습도 증가
+  gameState.humidity = Math.min(HUMIDITY_MAX, gameState.humidity + HUMIDITY_PER_SPRAY);
+  updateHumidityUI();
+
+  // 한 번이라도 뿌렸으면 완료 버튼 활성화
+  const doneBtn = document.getElementById('spray-done-btn');
+  if (doneBtn) doneBtn.disabled = false;
+}
+
+function sprayWaterDrops(x, y) {
+  const container = document.getElementById('game-container');
+  const count = 18;
+  for (let i = 0; i < count; i++) {
+    const drop = document.createElement('div');
+    const angle = (Math.random() * 70) + 200; // 왼쪽 하단 방향으로 퍼짐
+    const dist  = 30 + Math.random() * 60;
+    const size  = 3 + Math.random() * 5;
+    const rad   = angle * Math.PI / 180;
+    const tx    = Math.cos(rad) * dist;
+    const ty    = Math.sin(rad) * dist;
+    const delay = Math.random() * 120;
+
+    drop.style.cssText = `
+      position:absolute;
+      left:${x}px; top:${y}px;
+      width:${size}px; height:${size}px;
+      background: radial-gradient(circle, #a8d8ea, #60b8d4);
+      border-radius:50%;
+      pointer-events:none;
+      z-index:60;
+      opacity:0.9;
+      animation: dropFly 0.7s ease-out ${delay}ms forwards;
+      --tx:${tx}px; --ty:${ty}px;
+    `;
+    container.appendChild(drop);
+    setTimeout(() => drop.remove(), 900 + delay);
+  }
+}
+
+function startHumidityDrain() {
+  if (humidityTimer) clearInterval(humidityTimer);
+  humidityTimer = setInterval(() => {
+    if (STEPS[gameState.step] !== 'spray') {
+      clearInterval(humidityTimer); humidityTimer = null; return;
+    }
+    gameState.humidity = Math.max(0, gameState.humidity - HUMIDITY_DRAIN_RATE);
+    updateHumidityUI();
+  }, 1000);
+}
+
+function updateHumidityUI() {
+  const bar     = document.getElementById('humidity-bar');
+  const pct     = document.getElementById('humidity-pct');
+  const warning = document.getElementById('humidity-warning');
+  if (!bar) return;
+  const h = Math.round(gameState.humidity);
+  bar.style.width = h + '%';
+  // 색상: 낮으면 주황, 적당하면 파랑
+  if (h < 30) {
+    bar.style.background = 'linear-gradient(90deg,#ffb74d,#ff9800)';
+  } else if (h < 60) {
+    bar.style.background = 'linear-gradient(90deg,#4fc3f7,#0288d1)';
+  } else {
+    bar.style.background = 'linear-gradient(90deg,#4fc3f7,#0288d1)';
+  }
+  if (pct) pct.textContent = h + '%';
+  if (warning) warning.style.display = (h < 30 && h > 0) ? 'block' : 'none';
+}
+
+function finishSpray() {
+  if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
+  showToast('💧 촉촉하게 완료!', '#e3f2fd', '#0277bd');
+  setTimeout(() => { hideToast(); showCompletionPanel(); }, 1200);
 }
 
 // ===== 유틸 =====
