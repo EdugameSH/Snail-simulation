@@ -187,6 +187,12 @@ body {
   100% { transform: rotate(0deg); }
 }
 
+/* 스턴 별 */
+@keyframes stunStar {
+  0%   { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-22px) scale(0.6); opacity: 0; }
+}
+
 /* ===== 오른쪽 패널 ===== */
 #side-panel {
   position: absolute;
@@ -361,9 +367,10 @@ body {
         <!-- 달팽이 (사육상자 좌표계 기준 절대위치) -->
         <img id="snail-img" src="images/기본달팽이1.png" alt="달팽이" draggable="false"
           style="position:absolute; display:none; z-index:8;
-                 width:22%; max-width:100px; height:auto;
-                 transition: none;
-                 filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));">
+                 width:11%; max-width:50px; height:auto;
+                 transition: none; cursor:pointer;
+                 filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));"
+          onclick="stunSnail(event)">
       </div>
     </div>
 
@@ -401,6 +408,7 @@ const IMGS = {
   spray:        'images/분무기.png',
   snail1:       'images/기본달팽이1.png',
   snail2:       'images/기본달팽이2.png',
+  snailStun:    'images/스턴달팽이.png',
 };
 
 let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0 };
@@ -702,42 +710,112 @@ function confirmHide() {
 // ===== 달팽이 단계 =====
 function showSnailStep() {
   setSidePanel(`
+    <!-- 습도 게이지: 달팽이 단계에서도 항상 상단 표시 -->
+    <div style="margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-family:'Jua',sans-serif;font-size:12px;color:#1565c0;">💧 습도</span>
+        <span id="humidity-pct" style="font-size:11px;color:#888;">${Math.round(gameState.humidity)}%</span>
+      </div>
+      <div style="background:#e3f2fd;border-radius:20px;height:14px;overflow:hidden;border:1px solid #bbdefb;">
+        <div id="humidity-bar"
+          style="height:100%;width:${gameState.humidity}%;border-radius:20px;
+                 background:linear-gradient(90deg,#4fc3f7,#0288d1);
+                 transition:width 0.4s ease;"></div>
+      </div>
+      <div id="humidity-warning" style="display:${gameState.humidity < 30 && gameState.humidity > 0 ? 'block' : 'none'};
+        margin-top:5px;background:#fff3e0;border-left:3px solid #ff9800;
+        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#e65100;line-height:1.4;">
+        ⚠️ 공기가 너무 건조해요!<br>분무기를 뿌려주세요.
+      </div>
+    </div>
+
     <div class="step-badge">🐌 달팽이 입양</div>
     <div class="info-box">
       드디어 달팽이가 왔어요!<br>
       달팽이가 사육상자 안을 자유롭게 돌아다닙니다.
     </div>
-    <div style="text-align:center; padding: 20px 0 10px;">
-      <div style="font-size:52px; animation:snailBounce 2s ease-in-out infinite">🐌</div>
-      <div style="font-family:'Jua',sans-serif; font-size:15px; color:#2e7d32; margin-top:10px;">
+    <div style="text-align:center;padding:14px 0 8px;">
+      <div style="font-size:44px;animation:snailBounce 2s ease-in-out infinite">🐌</div>
+      <div style="font-family:'Jua',sans-serif;font-size:14px;color:#2e7d32;margin-top:8px;">
         달팽이가 집에 왔어요!
       </div>
-      <div style="font-size:12px; color:#777; margin-top:6px; line-height:1.6;">
-        천천히, 하지만 꾸준히<br>돌아다니고 있답니다 🌿
+      <div style="font-size:11px;color:#999;margin-top:5px;line-height:1.6;">
+        달팽이 얼굴을 터치해보세요 👆
       </div>
     </div>
     <button class="next-btn" style="margin-top:auto;" onclick="alert('달팽이 키우기 계속 업데이트 예정! 🐌')">계속하기 →</button>
   `);
   setProgress(STEPS.length);
+  // 습도 계속 감소
+  startHumidityDrain();
   startSnailMovement();
+}
+
+// 스턴 상태 플래그
+let snailStunned = false;
+let snailStunTimeout = null;
+
+function stunSnail(e) {
+  if (snailStunned) return;
+  // 클릭 위치가 달팽이 앞쪽 1/3 (얼굴 영역)인지 확인
+  const snail = document.getElementById('snail-img');
+  const r = snail.getBoundingClientRect();
+  const relX = (e.clientX - r.left) / r.width;
+  const facingLeft = snail.style.transform === 'scaleX(-1)';
+  // 얼굴 방향에 따라 클릭 영역 판정 (앞쪽 35%)
+  const isFaceClick = facingLeft ? relX > 0.65 : relX < 0.35;
+  if (!isFaceClick) return;
+
+  snailStunned = true;
+  snail.src = IMGS.snailStun;
+  snail.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))';
+
+  // 별 이모지 표시
+  showStunEffect(snail);
+
+  if (snailStunTimeout) clearTimeout(snailStunTimeout);
+  snailStunTimeout = setTimeout(() => {
+    snailStunned = false;
+    snail.src = IMGS.snail1;
+    snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+  }, 3000);
+}
+
+function showStunEffect(snail) {
+  const container = document.getElementById('terrarium-wrap');
+  const r = snail.getBoundingClientRect();
+  const cr = container.getBoundingClientRect();
+  const cx = r.left - cr.left + r.width * 0.3;
+  const cy = r.top  - cr.top  - 8;
+  const stars = ['⭐','💫','✨'];
+  stars.forEach((s, i) => {
+    const el = document.createElement('div');
+    el.textContent = s;
+    el.style.cssText = `
+      position:absolute; font-size:14px; pointer-events:none; z-index:20;
+      left:${cx + (i-1)*16}px; top:${cy}px;
+      animation: stunStar 1s ease-out ${i*120}ms forwards;
+    `;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 1400);
+  });
 }
 
 function startSnailMovement() {
   const snail = document.getElementById('snail-img');
   if (!snail) return;
 
-  // 사육상자 내부 유효 범위 (퍼센트 기준)
-  // 사육상자 이미지에서 실제 내부 공간: 좌우 10~90%, 상하 35~78% 정도
-  const BOUNDS = { left:8, right:78, top:36, bottom:72 };
-  // 달팽이 크기(%) 고려해서 right/bottom 조정
-  const SNAIL_W = 22; // width %
-  const SNAIL_H = 14; // 대략적인 height %
+  // 코코피트 바닥 범위 (이미지 기준 %)
+  // 사육상자 내부 코코피트가 깔린 하단 영역
+  const BOUNDS = { left:6, right:72, top:52, bottom:72 };
+  const SNAIL_W = 11;
+  const SNAIL_H = 7;
 
-  let x = 30, y = 55;       // 현재 위치 (%)
-  let tx = 50, ty = 60;     // 목표 위치
-  let frameIdx = 0;         // 애니메이션 프레임 (0=img1, 1=img2)
-  let frameTimer = 0;       // 프레임 전환 카운터
-  let restTimer = 0;        // 멈춤 카운터
+  let x = 25, y = 60;
+  let tx = 40, ty = 63;
+  let frameIdx = 0;
+  let frameTimer = 0;
+  let restTimer = 0;
   let isResting = false;
   let facingLeft = false;
 
@@ -748,19 +826,23 @@ function startSnailMovement() {
   function pickNewTarget() {
     tx = BOUNDS.left + Math.random() * (BOUNDS.right  - BOUNDS.left  - SNAIL_W);
     ty = BOUNDS.top  + Math.random() * (BOUNDS.bottom - BOUNDS.top   - SNAIL_H);
-    // 가끔 잠시 멈춤
     isResting = Math.random() < 0.25;
     restTimer = isResting ? (2000 + Math.random() * 3000) : 0;
   }
   pickNewTarget();
 
-  const SPEED = 0.018; // % per ms — 달팽이처럼 느리게
-
+  const SPEED = 0.014;
   let lastTime = null;
+
   function tick(ts) {
     if (!lastTime) lastTime = ts;
-    const dt = ts - lastTime;
+    const dt = Math.min(ts - lastTime, 50); // 최대 50ms (탭 전환 보정)
     lastTime = ts;
+
+    if (snailStunned) {
+      snailAnimTimer = requestAnimationFrame(tick);
+      return;
+    }
 
     if (isResting) {
       restTimer -= dt;
@@ -773,27 +855,32 @@ function startSnailMovement() {
     const dy = ty - y;
     const dist = Math.sqrt(dx*dx + dy*dy);
 
-    if (dist < 0.5) {
-      // 목표 도달 → 잠깐 쉬고 새 목표
+    if (dist < 0.4) {
       pickNewTarget();
     } else {
       const step = Math.min(SPEED * dt, dist);
       x += (dx / dist) * step;
       y += (dy / dist) * step;
 
-      // 좌우 방향 전환
       facingLeft = dx < 0;
+      // scaleX 반전 + 달팽이2 밝기 보정
+      const brightness = frameIdx === 1 ? 'brightness(1.05)' : 'brightness(1)';
+      snail.style.filter = snailStunned
+        ? 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))'
+        : `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${brightness}`;
       snail.style.transform = facingLeft ? 'scaleX(-1)' : 'scaleX(1)';
-
       snail.style.left = x + '%';
       snail.style.top  = y + '%';
 
-      // 프레임 전환: 600ms마다
       frameTimer += dt;
       if (frameTimer > 600) {
         frameTimer = 0;
         frameIdx = 1 - frameIdx;
-        snail.src = frameIdx === 0 ? IMGS.snail1 : IMGS.snail2;
+        if (!snailStunned) {
+          snail.src = frameIdx === 0 ? IMGS.snail1 : IMGS.snail2;
+          const br = frameIdx === 1 ? 'brightness(1.05)' : 'brightness(1)';
+          snail.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${br}`;
+        }
       }
     }
 
@@ -802,10 +889,6 @@ function startSnailMovement() {
 
   if (snailAnimTimer) cancelAnimationFrame(snailAnimTimer);
   snailAnimTimer = requestAnimationFrame(tick);
-}
-
-function stopSnailMovement() {
-  if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
 }
 
 function showCompletionPanel() {
