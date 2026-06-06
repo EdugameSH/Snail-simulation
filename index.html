@@ -123,7 +123,7 @@ body {
 /* 은신처 */
 #hide-item {
   position: absolute;
-  bottom: 16%; left: 70%;
+  bottom: 28%; left: 70%;
   transform: translateX(-50%);
   width: 18%; max-width: 80px; height: auto;
   display: none;
@@ -675,11 +675,14 @@ function selectHide(type, el) {
 function confirmHide() {
   if (!gameState.selectedHide) return;
   const item = document.getElementById('hide-item');
-  // 반투명 → 완전 불투명으로 픽스
   item.classList.remove('preview');
   item.style.opacity = '1';
   showToast('🏠 은신처 완성!', '#e8f5e9', '#2e7d32');
-  setTimeout(() => { hideToast(); showCompletionPanel(); }, 1200);
+  setTimeout(() => {
+    hideToast();
+    gameState.step++;
+    renderStep();
+  }, 1200);
 }
 
 function showCompletionPanel() {
