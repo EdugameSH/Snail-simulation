@@ -430,6 +430,7 @@ let humidityTimer = null;
 let statDrainTimer = null;  // 달팽이 단계 통합 타이머
 
 // 게이지 감소 속도 (초당 %)
+const HUMIDITY_MAX     = 100;
 const HUMIDITY_DRAIN   = 0.8;
 const HUNGER_DRAIN     = 0.4;
 const HAPPINESS_DRAIN  = 0.3;
@@ -589,7 +590,9 @@ function showCocopeatStep() {
       코코피트는 달팽이가 속으로 파고들 수 있도록 충분한 높이로 깔아주어야 합니다.
     </div>
     <div class="panel-title">코코피트 봉투를 사육상자로<br>드래그해봐요! 👆</div>
-    <img id="coco-bag-static" src="images/코코피트봉투.png" alt="코코피트" draggable="false">
+    <img id="coco-bag-static" src="images/코코피트봉투.png" alt="코코피트" draggable="false"
+      style="width:64px;height:auto;cursor:grab;display:block;margin:8px auto 4px;
+             filter:drop-shadow(0 3px 6px rgba(0,0,0,0.2));user-select:none;touch-action:none;">
     <div style="font-size:11px;color:#888;text-align:center;">← 잡아서 왼쪽으로 드래그!</div>
   `);
 
@@ -636,7 +639,9 @@ function initCocoDrag(staticEl) {
     const elCX  = er.left + er.width  / 2 - cr.left;
     const elCY  = er.top  + er.height / 2 - cr.top;
 
-    if (elCX < playW && elCY > 0 && elCY < cr.height) {
+    // 플레이박스 영역(왼쪽)에 드롭됐으면 성공
+    // 사이드 패널 영역(오른쪽 270px)만 아니면 OK
+    if (elCX < playW) {
       applyCocoPeat();
     } else {
       // 원위치 (패널로 복귀)
@@ -1173,7 +1178,7 @@ function initSprayDrag(staticEl) {
     const elCX = er.left + er.width  / 2 - cr.left;
     const elCY = er.top  + er.height / 2 - cr.top;
 
-    if (elCX < playW && elCY > 0 && elCY < cr.height) {
+    if (elCX < playW) {
       applySpray(bag, staticEl, cr);
     } else {
       // 원위치 복귀
