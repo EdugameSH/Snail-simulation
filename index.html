@@ -193,6 +193,16 @@ body {
   100% { transform: translateY(-22px) scale(0.6); opacity: 0; }
 }
 
+/* 달팽이 사망 */
+@keyframes snailDie {
+  0%   { transform: rotate(0deg) scale(1); opacity:1; }
+  20%  { transform: rotate(-15deg) scale(1.05); }
+  40%  { transform: rotate(12deg) scale(0.95); }
+  60%  { transform: rotate(-8deg); }
+  80%  { transform: rotate(5deg) scale(0.9); opacity:0.8; }
+  100% { transform: rotate(0deg) scale(0.85) translateY(4px); opacity:0.5; }
+}
+
 /* ===== 오른쪽 패널 ===== */
 #side-panel {
   position: absolute;
@@ -409,19 +419,29 @@ const IMGS = {
   snail1:       'images/기본달팽이1.png',
   snail2:       'images/기본달팽이2.png',
   snailStun:    'images/스턴달팽이.png',
+  snailShell:   'images/달팽이껍질.png',
 };
 
-let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0 };
+let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100 };
 const STEPS = ['quiz1','boxSelect','quiz2','cocopeat','hideSelect','spray','snail'];
 
-// 습도 관련
+// 게이지 타이머
 let humidityTimer = null;
-const HUMIDITY_MAX = 100;
-const HUMIDITY_DRAIN_RATE = 0.8;  // 초당 감소량 (%)
-const HUMIDITY_PER_SPRAY  = 25;   // 한 번 뿌릴 때 증가량
+let statDrainTimer = null;  // 달팽이 단계 통합 타이머
 
-// 달팽이 이동 관련
+// 게이지 감소 속도 (초당 %)
+const HUMIDITY_DRAIN   = 0.8;
+const HUNGER_DRAIN     = 0.4;
+const HAPPINESS_DRAIN  = 0.3;
+const HUMIDITY_PER_SPRAY = 25;
+
+// 달팽이 이동
 let snailAnimTimer = null;
+
+// 달팽이 사망 관련
+let snailDead = false;
+let lifeWarningCount = 0;  // 수명 경고 횟수
+let lifeWarningShown = false; // 현재 경고 중복 방지
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -709,75 +729,116 @@ function confirmHide() {
 
 // ===== 달팽이 단계 =====
 function showSnailStep() {
+  snailDead = false;
+  lifeWarningCount = 0;
+  lifeWarningShown = false;
+  gameState.hunger = 100;
+  gameState.happiness = 100;
+
   setSidePanel(`
-    <!-- 습도 게이지: 달팽이 단계에서도 항상 상단 표시 -->
-    <div style="margin-bottom:12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <span style="font-family:'Jua',sans-serif;font-size:12px;color:#1565c0;">💧 습도</span>
-        <span id="humidity-pct" style="font-size:11px;color:#888;">${Math.round(gameState.humidity)}%</span>
+    <!-- ===== 3개 게이지 ===== -->
+    <div id="snail-stats" style="margin-bottom:10px;">
+
+      <!-- 습도 -->
+      <div style="margin-bottom:7px;">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
+          <span style="font-size:13px;">💧</span>
+          <span style="font-family:'Jua',sans-serif;font-size:11px;color:#1565c0;flex:1;">습도</span>
+        </div>
+        <div style="background:#e3f2fd;border-radius:20px;height:12px;overflow:hidden;">
+          <div id="snail-humidity-bar" style="height:100%;width:${gameState.humidity}%;border-radius:20px;
+            background:linear-gradient(90deg,#4fc3f7,#0288d1);transition:width 0.5s ease;"></div>
+        </div>
       </div>
-      <div style="background:#e3f2fd;border-radius:20px;height:14px;overflow:hidden;border:1px solid #bbdefb;">
-        <div id="humidity-bar"
-          style="height:100%;width:${gameState.humidity}%;border-radius:20px;
-                 background:linear-gradient(90deg,#4fc3f7,#0288d1);
-                 transition:width 0.4s ease;"></div>
+
+      <!-- 배고픔 -->
+      <div style="margin-bottom:7px;">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
+          <span style="font-size:13px;">🥬</span>
+          <span style="font-family:'Jua',sans-serif;font-size:11px;color:#2e7d32;flex:1;">배고픔</span>
+        </div>
+        <div style="background:#e8f5e9;border-radius:20px;height:12px;overflow:hidden;">
+          <div id="snail-hunger-bar" style="height:100%;width:100%;border-radius:20px;
+            background:linear-gradient(90deg,#a5d6a7,#43a047);transition:width 0.5s ease;"></div>
+        </div>
       </div>
-      <div id="humidity-warning" style="display:${gameState.humidity < 30 && gameState.humidity > 0 ? 'block' : 'none'};
-        margin-top:5px;background:#fff3e0;border-left:3px solid #ff9800;
-        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#e65100;line-height:1.4;">
-        ⚠️ 공기가 너무 건조해요!<br>분무기를 뿌려주세요.
+
+      <!-- 행복 -->
+      <div style="margin-bottom:7px;">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
+          <span style="font-size:13px;">💗</span>
+          <span style="font-family:'Jua',sans-serif;font-size:11px;color:#880e4f;flex:1;">행복</span>
+        </div>
+        <div style="background:#fce4ec;border-radius:20px;height:12px;overflow:hidden;">
+          <div id="snail-happiness-bar" style="height:100%;width:100%;border-radius:20px;
+            background:linear-gradient(90deg,#f48fb1,#e91e63);transition:width 0.5s ease;"></div>
+        </div>
+      </div>
+
+      <!-- 경고 메시지들 -->
+      <div id="warn-humidity" style="display:none;background:#fff3e0;border-left:3px solid #ff9800;
+        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#e65100;line-height:1.5;margin-top:3px;">
+        💧 공기가 너무 건조해요!<br>분무기를 뿌려주세요.
+      </div>
+      <div id="warn-hunger" style="display:none;background:#ffebee;border-left:3px solid #e53935;
+        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#c62828;line-height:1.5;margin-top:3px;">
+        🥬 달팽이가 배고파요!<br>먹이를 주세요.
+      </div>
+      <div id="warn-happiness" style="display:none;background:#f3e5f5;border-left:3px solid #8e24aa;
+        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#6a1b9a;line-height:1.5;margin-top:3px;">
+        💔 달팽이가 스트레스를 너무 많이 받았어요.<br>수명이 줄어듭니다.
       </div>
     </div>
 
     <div class="step-badge">🐌 달팽이 입양</div>
-    <div class="info-box">
+    <div class="info-box" style="font-size:11px;">
       드디어 달팽이가 왔어요!<br>
       달팽이가 사육상자 안을 자유롭게 돌아다닙니다.
     </div>
-    <div style="text-align:center;padding:14px 0 8px;">
-      <div style="font-size:44px;animation:snailBounce 2s ease-in-out infinite">🐌</div>
-      <div style="font-family:'Jua',sans-serif;font-size:14px;color:#2e7d32;margin-top:8px;">
+    <div style="text-align:center;padding:10px 0 6px;">
+      <div style="font-size:40px;animation:snailBounce 2s ease-in-out infinite">🐌</div>
+      <div style="font-family:'Jua',sans-serif;font-size:13px;color:#2e7d32;margin-top:6px;">
         달팽이가 집에 왔어요!
-      </div>
-      <div style="font-size:11px;color:#999;margin-top:5px;line-height:1.6;">
-        달팽이 얼굴을 터치해보세요 👆
       </div>
     </div>
     <button class="next-btn" style="margin-top:auto;" onclick="alert('달팽이 키우기 계속 업데이트 예정! 🐌')">계속하기 →</button>
   `);
+
   setProgress(STEPS.length);
-  // 습도 계속 감소
-  startHumidityDrain();
+  startStatDrain();
   startSnailMovement();
 }
 
-// 스턴 상태 플래그
+// 스턴
 let snailStunned = false;
 let snailStunTimeout = null;
 
 function stunSnail(e) {
-  if (snailStunned) return;
-  // 클릭 위치가 달팽이 앞쪽 1/3 (얼굴 영역)인지 확인
+  if (snailStunned || snailDead) return;
   const snail = document.getElementById('snail-img');
   const r = snail.getBoundingClientRect();
   const relX = (e.clientX - r.left) / r.width;
   const facingLeft = snail.style.transform === 'scaleX(-1)';
-  // 얼굴 방향에 따라 클릭 영역 판정 (앞쪽 35%)
   const isFaceClick = facingLeft ? relX > 0.65 : relX < 0.35;
   if (!isFaceClick) return;
 
   snailStunned = true;
   snail.src = IMGS.snailStun;
   snail.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))';
-
-  // 별 이모지 표시
   showStunEffect(snail);
+
+  // 행복 -10%
+  gameState.happiness = Math.max(0, gameState.happiness - 10);
+  updateSnailStatsUI();
+  checkSnailWarnings();
 
   if (snailStunTimeout) clearTimeout(snailStunTimeout);
   snailStunTimeout = setTimeout(() => {
-    snailStunned = false;
-    snail.src = IMGS.snail1;
-    snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+    if (!snailDead) {
+      snailStunned = false;
+      snail.src = IMGS.snail1;
+      snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+    }
   }, 3000);
 }
 
@@ -787,18 +848,146 @@ function showStunEffect(snail) {
   const cr = container.getBoundingClientRect();
   const cx = r.left - cr.left + r.width * 0.3;
   const cy = r.top  - cr.top  - 8;
-  const stars = ['⭐','💫','✨'];
-  stars.forEach((s, i) => {
+  ['⭐','💫','✨'].forEach((s, i) => {
     const el = document.createElement('div');
     el.textContent = s;
-    el.style.cssText = `
-      position:absolute; font-size:14px; pointer-events:none; z-index:20;
-      left:${cx + (i-1)*16}px; top:${cy}px;
-      animation: stunStar 1s ease-out ${i*120}ms forwards;
-    `;
+    el.style.cssText = `position:absolute;font-size:14px;pointer-events:none;z-index:20;
+      left:${cx+(i-1)*16}px;top:${cy}px;
+      animation:stunStar 1s ease-out ${i*120}ms forwards;`;
     container.appendChild(el);
     setTimeout(() => el.remove(), 1400);
   });
+}
+
+// ===== 달팽이 사망 =====
+function killSnail() {
+  if (snailDead) return;
+  snailDead = true;
+  stopStatDrain();
+  if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
+
+  const snail = document.getElementById('snail-img');
+  if (!snail) return;
+
+  // 사망 애니메이션: 흔들리다가 쓰러짐
+  snail.style.transition = 'all 0.8s ease';
+  snail.style.animation = 'snailDie 0.8s ease forwards';
+
+  setTimeout(() => {
+    // 껍질 이미지로 교체 (달팽이 껍질 크기 = 기본달팽이 껍질 부분과 동일하게 ~11%)
+    snail.src = IMGS.snailShell;
+    snail.style.animation = '';
+    snail.style.width = '11%';
+    snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+    snail.style.transform = 'none';
+    snail.onclick = null;
+
+    // 게이지 모두 0으로, 경고 숨김
+    gameState.humidity = 0; gameState.hunger = 0; gameState.happiness = 0;
+    const hb = document.getElementById('snail-humidity-bar');
+    const fb = document.getElementById('snail-hunger-bar');
+    const hpb= document.getElementById('snail-happiness-bar');
+    if (hb)  { hb.style.width  = '0%'; }
+    if (fb)  { fb.style.width  = '0%'; }
+    if (hpb) { hpb.style.width = '0%'; }
+    ['warn-humidity','warn-hunger','warn-happiness'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+    // 3초 후 안내 팝업
+    setTimeout(() => showDeathMessage(), 3000);
+  }, 900);
+}
+
+function showDeathMessage() {
+  showGamePopup(
+    '😔',
+    '작은 생물일지라도 당신의 장난감이 아닙니다.\n달팽이를 좀 더 사랑으로 아껴주세요.',
+    [{ label:'→', action:'showRestartQuestion' }]
+  );
+}
+
+function showRestartQuestion() {
+  showGamePopup(
+    '🐌',
+    '달팽이를 다시 키우시겠습니까?',
+    [
+      { label:'예', action:'confirmRestart' },
+      { label:'아니오', action:'closePopup' }
+    ]
+  );
+}
+
+function confirmRestart() {
+  showGamePopup(
+    '🌱',
+    '이번에는 달팽이를 잘 키워보아요',
+    [{ label:'처음으로 돌아가기', action:'resetGame' }]
+  );
+}
+
+function closePopup() {
+  const popup = document.getElementById('game-popup');
+  if (popup) popup.style.display = 'none';
+}
+
+function resetGame() {
+  // 모든 상태 초기화
+  stopStatDrain();
+  if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
+  if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
+  snailDead = false; snailStunned = false; lifeWarningCount = 0; lifeWarningShown = false;
+  gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100 };
+
+  // 달팽이 숨김
+  const snail = document.getElementById('snail-img');
+  if (snail) { snail.style.display = 'none'; snail.onclick = stunSnail; }
+  // 사육상자 숨김
+  document.getElementById('terrarium-wrap').style.display = 'none';
+  // 은신처 숨김
+  const hideItem = document.getElementById('hide-item');
+  if (hideItem) { hideItem.style.display = 'none'; hideItem.className = ''; }
+
+  closePopup();
+  document.getElementById('game-screen').style.display = 'none';
+  document.getElementById('title-screen').style.display = 'flex';
+}
+
+// 범용 팝업
+function showGamePopup(icon, message, buttons) {
+  let popup = document.getElementById('game-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'game-popup';
+    document.getElementById('game-container').appendChild(popup);
+  }
+  const btnHtml = buttons.map(b =>
+    `<button onclick="${b.action}()" style="
+      background:${b.label === '아니오' ? '#e0e0e0' : '#4caf50'};
+      color:${b.label === '아니오' ? '#333' : 'white'};
+      border:none;padding:10px 20px;border-radius:10px;
+      font-family:'Jua',sans-serif;font-size:14px;cursor:pointer;
+      box-shadow:0 3px 0 ${b.label === '아니오' ? '#bdbdbd' : '#388e3c'};
+      flex:1;max-width:120px;"
+    >${b.label}</button>`
+  ).join('');
+  popup.style.cssText = `
+    position:absolute;top:50%;left:calc(50% - 135px);
+    transform:translate(-50%,-50%);
+    width:min(320px,calc(100vw - 290px));
+    background:white;border-radius:20px;
+    padding:24px 20px 20px;text-align:center;
+    box-shadow:0 8px 36px rgba(0,0,0,0.22);
+    z-index:60;display:block;
+    animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  `;
+  popup.innerHTML = `
+    <div style="font-size:40px;margin-bottom:10px;">${icon}</div>
+    <div style="font-family:'Jua',sans-serif;font-size:13px;color:#333;
+      line-height:1.8;margin-bottom:16px;white-space:pre-line;">${message}</div>
+    <div style="display:flex;gap:8px;justify-content:center;">${btnHtml}</div>
+  `;
 }
 
 function startSnailMovement() {
@@ -836,8 +1025,11 @@ function startSnailMovement() {
 
   function tick(ts) {
     if (!lastTime) lastTime = ts;
-    const dt = Math.min(ts - lastTime, 50); // 최대 50ms (탭 전환 보정)
+    const dt = Math.min(ts - lastTime, 50);
     lastTime = ts;
+
+    // 사망 시 루프 중단
+    if (snailDead) return;
 
     if (snailStunned) {
       snailAnimTimer = requestAnimationFrame(tick);
@@ -914,9 +1106,8 @@ function showSprayStep() {
 
     <!-- 습도 게이지 (항상 패널 상단에 표시) -->
     <div style="margin-bottom:12px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <div style="display:flex; align-items:center; margin-bottom:4px;">
         <span style="font-family:'Jua',sans-serif; font-size:12px; color:#1565c0;">💧 습도</span>
-        <span id="humidity-pct" style="font-size:11px; color:#888;">0%</span>
       </div>
       <div style="background:#e3f2fd; border-radius:20px; height:14px; overflow:hidden; border:1px solid #bbdefb;">
         <div id="humidity-bar"
@@ -1071,32 +1262,96 @@ function startHumidityDrain() {
     if (STEPS[gameState.step] !== 'spray') {
       clearInterval(humidityTimer); humidityTimer = null; return;
     }
-    gameState.humidity = Math.max(0, gameState.humidity - HUMIDITY_DRAIN_RATE);
+    gameState.humidity = Math.max(0, gameState.humidity - HUMIDITY_DRAIN);
     updateHumidityUI();
   }, 1000);
 }
 
+// 달팽이 단계: 습도+배고픔+행복 통합 감소
+function startStatDrain() {
+  if (statDrainTimer) clearInterval(statDrainTimer);
+  statDrainTimer = setInterval(() => {
+    if (snailDead) return;
+    gameState.humidity   = Math.max(0, gameState.humidity   - HUMIDITY_DRAIN);
+    gameState.hunger     = Math.max(0, gameState.hunger     - HUNGER_DRAIN);
+    gameState.happiness  = Math.max(0, gameState.happiness  - HAPPINESS_DRAIN);
+    updateSnailStatsUI();
+    checkSnailWarnings();
+  }, 1000);
+}
+
+function stopStatDrain() {
+  if (statDrainTimer) { clearInterval(statDrainTimer); statDrainTimer = null; }
+}
+
+function updateSnailStatsUI() {
+  const hBar = document.getElementById('snail-humidity-bar');
+  const fBar = document.getElementById('snail-hunger-bar');
+  const hpBar= document.getElementById('snail-happiness-bar');
+  if (!hBar) return;
+
+  const h  = Math.round(gameState.humidity);
+  const f  = Math.round(gameState.hunger);
+  const hp = Math.round(gameState.happiness);
+
+  hBar.style.width  = h  + '%';
+  fBar.style.width  = f  + '%';
+  hpBar.style.width = hp + '%';
+
+  // 색상 변화
+  hBar.style.background  = h  < 30 ? 'linear-gradient(90deg,#ffb74d,#ff9800)' : 'linear-gradient(90deg,#4fc3f7,#0288d1)';
+  fBar.style.background  = f  < 50 ? 'linear-gradient(90deg,#ef9a9a,#e53935)' : 'linear-gradient(90deg,#a5d6a7,#43a047)';
+  hpBar.style.background = hp < 30 ? 'linear-gradient(90deg,#ce93d8,#8e24aa)' : 'linear-gradient(90deg,#f48fb1,#e91e63)';
+}
+
+function checkSnailWarnings() {
+  if (snailDead) return;
+  const h  = gameState.humidity;
+  const f  = gameState.hunger;
+  const hp = gameState.happiness;
+
+  const wHumidity   = document.getElementById('warn-humidity');
+  const wHunger     = document.getElementById('warn-hunger');
+  const wHappiness  = document.getElementById('warn-happiness');
+
+  if (wHumidity)  wHumidity.style.display  = (h  < 30) ? 'block' : 'none';
+  if (wHunger)    wHunger.style.display    = (f  < 50) ? 'block' : 'none';
+
+  if (hp < 30) {
+    if (!lifeWarningShown) {
+      lifeWarningShown = true;
+      lifeWarningCount++;
+      if (wHappiness) wHappiness.style.display = 'block';
+      if (lifeWarningCount >= 2) {
+        // 2번째 경고 → 3초 후 사망
+        setTimeout(() => killSnail(), 3000);
+      }
+    }
+  } else {
+    lifeWarningShown = false;
+    if (wHappiness) wHappiness.style.display = 'none';
+  }
+}
+
 function updateHumidityUI() {
   const bar     = document.getElementById('humidity-bar');
-  const pct     = document.getElementById('humidity-pct');
   const warning = document.getElementById('humidity-warning');
   if (!bar) return;
   const h = Math.round(gameState.humidity);
   bar.style.width = h + '%';
-  // 색상: 낮으면 주황, 적당하면 파랑
-  if (h < 30) {
-    bar.style.background = 'linear-gradient(90deg,#ffb74d,#ff9800)';
-  } else if (h < 60) {
-    bar.style.background = 'linear-gradient(90deg,#4fc3f7,#0288d1)';
-  } else {
-    bar.style.background = 'linear-gradient(90deg,#4fc3f7,#0288d1)';
-  }
-  if (pct) pct.textContent = h + '%';
+  bar.style.background = h < 30 ? 'linear-gradient(90deg,#ffb74d,#ff9800)' : 'linear-gradient(90deg,#4fc3f7,#0288d1)';
   if (warning) warning.style.display = (h < 30 && h > 0) ? 'block' : 'none';
 }
 
 function finishSpray() {
-  if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
+  showToast('💧 촉촉하게 완료!', '#e3f2fd', '#0277bd');
+  setTimeout(() => {
+    hideToast();
+    gameState.step++;
+    renderStep();
+  }, 1200);
+}
+  // humidityTimer는 자동 종료됨 (step이 spray가 아닐 때 clearInterval)
   showToast('💧 촉촉하게 완료!', '#e3f2fd', '#0277bd');
   setTimeout(() => {
     hideToast();
