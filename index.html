@@ -125,7 +125,7 @@ body {
   position: absolute;
   bottom: 28%; left: 70%;
   transform: translateX(-50%);
-  width: 18%; max-width: 80px; height: auto;
+  width: 20%; max-width: 88px; height: auto;
   display: none;
   animation: itemAppear 0.4s cubic-bezier(0.34,1.56,0.64,1);
   z-index: 6;
@@ -201,6 +201,12 @@ body {
   60%  { transform: rotate(-8deg); }
   80%  { transform: rotate(5deg) scale(0.9); opacity:0.8; }
   100% { transform: rotate(0deg) scale(0.85) translateY(4px); opacity:0.5; }
+}
+
+/* 은신처 말풍선 */
+@keyframes bubbleFloat {
+  0%,100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-5px) scale(1.05); }
 }
 
 /* ===== 오른쪽 패널 ===== */
@@ -422,12 +428,12 @@ const IMGS = {
   snailShell:   'images/달팽이껍질.png',
 };
 
-let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100 };
+let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
 const STEPS = ['quiz1','boxSelect','quiz2','cocopeat','hideSelect','spray','snail'];
 
 // 게이지 타이머
 let humidityTimer = null;
-let statDrainTimer = null;  // 달팽이 단계 통합 타이머
+let statDrainTimer = null;
 
 // 게이지 감소 속도 (초당 %)
 const HUMIDITY_MAX     = 100;
@@ -441,8 +447,12 @@ let snailAnimTimer = null;
 
 // 달팽이 사망 관련
 let snailDead = false;
-let lifeWarningCount = 0;  // 수명 경고 횟수
-let lifeWarningShown = false; // 현재 경고 중복 방지
+let lifeWarningCount = 0;
+let lifeWarningShown = false;
+
+// 은신처 관련
+let snailInHide = false;
+let hideRoutineRunning = false;
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -737,14 +747,42 @@ function showSnailStep() {
   snailDead = false;
   lifeWarningCount = 0;
   lifeWarningShown = false;
+  snailInHide = false;
+  hideRoutineRunning = false;
   gameState.hunger = 100;
   gameState.happiness = 100;
 
-  setSidePanel(`
-    <!-- ===== 3개 게이지 ===== -->
-    <div id="snail-stats" style="margin-bottom:10px;">
+  // 이름 입력 팝업
+  showGamePopup('🐌', '달팽이 이름을 지어주세요!', [], `
+    <input id="snail-name-input" type="text" maxlength="8" placeholder="예: 달달이"
+      style="width:100%;padding:10px 14px;border:2px solid #c5e1a5;border-radius:12px;
+             font-family:'Jua',sans-serif;font-size:16px;color:#333;outline:none;
+             box-sizing:border-box;margin-bottom:12px;text-align:center;">
+    <button onclick="confirmSnailName()"
+      style="width:100%;background:#4caf50;color:white;border:none;padding:11px;
+             border-radius:10px;font-family:'Jua',sans-serif;font-size:16px;
+             cursor:pointer;box-shadow:0 3px 0 #388e3c;">
+      입양하기 🐌
+    </button>
+  `);
+  setTimeout(() => {
+    const inp = document.getElementById('snail-name-input');
+    if (inp) inp.focus();
+  }, 100);
+}
 
-      <!-- 습도 -->
+function confirmSnailName() {
+  const inp = document.getElementById('snail-name-input');
+  const name = inp ? inp.value.trim() : '';
+  gameState.snailName = name || '달팽이';
+  closePopup();
+  startSnailLife();
+}
+
+function startSnailLife() {
+  setSidePanel(`
+    <!-- 3개 게이지 -->
+    <div id="snail-stats" style="margin-bottom:10px;">
       <div style="margin-bottom:7px;">
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
           <span style="font-size:13px;">💧</span>
@@ -755,8 +793,6 @@ function showSnailStep() {
             background:linear-gradient(90deg,#4fc3f7,#0288d1);transition:width 0.5s ease;"></div>
         </div>
       </div>
-
-      <!-- 배고픔 -->
       <div style="margin-bottom:7px;">
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
           <span style="font-size:13px;">🥬</span>
@@ -767,8 +803,6 @@ function showSnailStep() {
             background:linear-gradient(90deg,#a5d6a7,#43a047);transition:width 0.5s ease;"></div>
         </div>
       </div>
-
-      <!-- 행복 -->
       <div style="margin-bottom:7px;">
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
           <span style="font-size:13px;">💗</span>
@@ -779,8 +813,6 @@ function showSnailStep() {
             background:linear-gradient(90deg,#f48fb1,#e91e63);transition:width 0.5s ease;"></div>
         </div>
       </div>
-
-      <!-- 경고 메시지들 -->
       <div id="warn-humidity" style="display:none;background:#fff3e0;border-left:3px solid #ff9800;
         border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#e65100;line-height:1.5;margin-top:3px;">
         💧 공기가 너무 건조해요!<br>분무기를 뿌려주세요.
@@ -793,23 +825,38 @@ function showSnailStep() {
         border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#6a1b9a;line-height:1.5;margin-top:3px;">
         💔 달팽이가 스트레스를 너무 많이 받았어요.<br>수명이 줄어듭니다.
       </div>
-    </div>
-
-    <div class="step-badge">🐌 달팽이 입양</div>
-    <div class="info-box" style="font-size:11px;">
-      드디어 달팽이가 왔어요!<br>
-      달팽이가 사육상자 안을 자유롭게 돌아다닙니다.
-    </div>
-    <div style="text-align:center;padding:10px 0 6px;">
-      <div style="font-size:40px;animation:snailBounce 2s ease-in-out infinite">🐌</div>
-      <div style="font-family:'Jua',sans-serif;font-size:13px;color:#2e7d32;margin-top:6px;">
-        달팽이가 집에 왔어요!
+      <div id="warn-toomuch-water" style="display:none;background:#e3f2fd;border-left:3px solid #1565c0;
+        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#0d47a1;line-height:1.5;margin-top:3px;">
+        💧 현재 습도가 적당해요.<br>물이 너무 많아도 좋지 않아요.
       </div>
     </div>
-    <button class="next-btn" style="margin-top:auto;" onclick="alert('달팽이 키우기 계속 업데이트 예정! 🐌')">계속하기 →</button>
+
+    <!-- 분무기 -->
+    <div style="margin-bottom:8px;">
+      <div style="font-family:'Jua',sans-serif;font-size:11px;color:#555;margin-bottom:4px;">💦 분무기</div>
+      <img id="snail-spray-static" src="images/분무기.png" alt="분무기" draggable="false"
+        style="width:56px;height:auto;cursor:grab;display:block;margin:0 auto;
+               filter:drop-shadow(0 3px 6px rgba(0,0,0,0.2));user-select:none;touch-action:none;">
+    </div>
+
+    <div class="step-badge">🐌 ${gameState.snailName}</div>
+    <div class="info-box" style="font-size:11px;">
+      달팽이가 집에 왔어요!<br>
+      사랑으로 돌봐주세요 🌿
+    </div>
   `);
 
   setProgress(STEPS.length);
+
+  // 이름표 표시
+  showNameTag();
+
+  // 분무기 드래그 초기화
+  requestAnimationFrame(() => {
+    const staticEl = document.getElementById('snail-spray-static');
+    if (staticEl) initSnailSprayDrag(staticEl);
+  });
+
   startStatDrain();
   startSnailMovement();
 }
@@ -943,7 +990,8 @@ function resetGame() {
   if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
   if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
   snailDead = false; snailStunned = false; lifeWarningCount = 0; lifeWarningShown = false;
-  gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100 };
+  snailInHide = false; hideRoutineRunning = false;
+  gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
 
   // 달팽이 숨김
   const snail = document.getElementById('snail-img');
@@ -955,12 +1003,16 @@ function resetGame() {
   if (hideItem) { hideItem.style.display = 'none'; hideItem.className = ''; }
 
   closePopup();
+  // 이름표, 말풍선 제거
+  const nt = document.getElementById('snail-nametag');
+  if (nt) nt.remove();
+  showHideBubble(false);
   document.getElementById('game-screen').style.display = 'none';
   document.getElementById('title-screen').style.display = 'flex';
 }
 
 // 범용 팝업
-function showGamePopup(icon, message, buttons) {
+function showGamePopup(icon, message, buttons, extraHTML='') {
   let popup = document.getElementById('game-popup');
   if (!popup) {
     popup = document.createElement('div');
@@ -991,26 +1043,177 @@ function showGamePopup(icon, message, buttons) {
     <div style="font-size:40px;margin-bottom:10px;">${icon}</div>
     <div style="font-family:'Jua',sans-serif;font-size:13px;color:#333;
       line-height:1.8;margin-bottom:16px;white-space:pre-line;">${message}</div>
-    <div style="display:flex;gap:8px;justify-content:center;">${btnHtml}</div>
+    ${extraHTML || `<div style="display:flex;gap:8px;justify-content:center;">${btnHtml}</div>`}
   `;
+}
+
+function showNameTag() {
+  // 기존 이름표 제거
+  const old = document.getElementById('snail-nametag');
+  if (old) old.remove();
+  const wrap = document.getElementById('terrarium-wrap');
+  if (!wrap) return;
+  const tag = document.createElement('div');
+  tag.id = 'snail-nametag';
+  tag.textContent = '🏷 ' + gameState.snailName;
+  tag.style.cssText = `
+    position:absolute; top:8%; left:5%;
+    background:rgba(255,255,255,0.92);
+    border:2px solid #a5d6a7;
+    border-radius:20px;
+    padding:3px 10px;
+    font-family:'Jua',sans-serif;
+    font-size:clamp(9px,1.5vw,13px);
+    color:#2e7d32;
+    z-index:15;
+    box-shadow:0 2px 6px rgba(0,0,0,0.12);
+    white-space:nowrap;
+    pointer-events:none;
+  `;
+  wrap.appendChild(tag);
+}
+
+// 달팽이 단계 전용 분무기 드래그
+function initSnailSprayDrag(staticEl) {
+  let dragging = false, ox, oy;
+  const bag = document.getElementById('spray-bag');
+
+  function getPos(e) { return e.touches ? {x:e.touches[0].clientX,y:e.touches[0].clientY} : {x:e.clientX,y:e.clientY}; }
+
+  function onStart(e) {
+    e.preventDefault(); dragging = true;
+    const p = getPos(e), sr = staticEl.getBoundingClientRect();
+    ox = p.x - sr.left; oy = p.y - sr.top;
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    bag.style.left = (sr.left - cr.left) + 'px';
+    bag.style.top  = (sr.top  - cr.top)  + 'px';
+    bag.style.transition = 'none';
+    bag.style.display = 'block';
+    staticEl.style.opacity = '0';
+  }
+  function onMove(e) {
+    if (!dragging) return; e.preventDefault();
+    const p = getPos(e), cr = document.getElementById('game-container').getBoundingClientRect();
+    bag.style.left = (p.x - cr.left - ox) + 'px';
+    bag.style.top  = (p.y - cr.top  - oy) + 'px';
+  }
+  function onEnd() {
+    if (!dragging) return; dragging = false;
+    const er = bag.getBoundingClientRect();
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    const playW = cr.width - 270;
+    const elCX = er.left + er.width / 2 - cr.left;
+
+    if (elCX < playW) {
+      // 과습 경고
+      if (gameState.humidity > 97) {
+        const warn = document.getElementById('warn-toomuch-water');
+        if (warn) {
+          warn.style.display = 'block';
+          setTimeout(() => { warn.style.display = 'none'; }, 3000);
+        }
+        bag.style.transition = 'all 0.35s cubic-bezier(0.34,1.56,0.64,1)';
+        const sr = staticEl.getBoundingClientRect();
+        bag.style.left = (sr.left - cr.left) + 'px';
+        bag.style.top  = (sr.top  - cr.top)  + 'px';
+        setTimeout(() => { bag.style.display = 'none'; staticEl.style.opacity = '1'; }, 360);
+      } else {
+        applySpray(bag, staticEl, cr);
+      }
+    } else {
+      const sr = staticEl.getBoundingClientRect();
+      bag.style.transition = 'all 0.35s cubic-bezier(0.34,1.56,0.64,1)';
+      bag.style.left = (sr.left - cr.left) + 'px';
+      bag.style.top  = (sr.top  - cr.top)  + 'px';
+      setTimeout(() => { bag.style.display = 'none'; staticEl.style.opacity = '1'; }, 360);
+    }
+  }
+
+  staticEl.addEventListener('mousedown', onStart);
+  staticEl.addEventListener('touchstart', onStart, {passive:false});
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('mouseup', onEnd);
+  document.addEventListener('touchend', onEnd);
+}
+
+// 은신처 말풍선
+function showHideBubble(show) {
+  const wrap = document.getElementById('terrarium-wrap');
+  if (!wrap) return;
+  let bubble = document.getElementById('hide-bubble');
+  if (show) {
+    if (!bubble) {
+      bubble = document.createElement('div');
+      bubble.id = 'hide-bubble';
+      // 은신처 위치와 동일한 기준 (left:70%, bottom:28% → top으로 계산)
+      bubble.style.cssText = `
+        position:absolute;
+        left:62%; bottom:46%;
+        z-index:15; pointer-events:none;
+        font-size:clamp(14px,2.5vw,22px);
+        background:white;
+        border-radius:50%;
+        width:2em; height:2em;
+        display:flex; align-items:center; justify-content:center;
+        box-shadow:0 2px 8px rgba(0,0,0,0.15);
+        border:2px solid #c5e1a5;
+        animation:bubbleFloat 1.2s ease-in-out infinite;
+      `;
+      bubble.innerHTML = '🐌';
+      wrap.appendChild(bubble);
+    }
+  } else {
+    if (bubble) bubble.remove();
+  }
+}
+
+// 은신처 이동 함수
+function goToHide(snail, onArrival) {
+  // 은신처 위치(%) — hide-item CSS와 동일
+  const hideX = 64, hideY = 58;
+  snailInHide = false;
+
+  let x = parseFloat(snail.style.left) || 25;
+  let y = parseFloat(snail.style.top)  || 60;
+  const SPEED = 0.022; // 좀 더 빠르게
+  let lastTime = null;
+
+  function moveTick(ts) {
+    if (snailDead) return;
+    if (!lastTime) lastTime = ts;
+    const dt = Math.min(ts - lastTime, 50);
+    lastTime = ts;
+
+    const dx = hideX - x, dy = hideY - y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    if (dist < 0.8) {
+      snail.style.left = hideX + '%';
+      snail.style.top  = hideY + '%';
+      onArrival();
+      return;
+    }
+    const step = Math.min(SPEED * dt, dist);
+    x += (dx/dist)*step; y += (dy/dist)*step;
+    snail.style.left = x + '%'; snail.style.top = y + '%';
+    snail.style.transform = dx < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+    requestAnimationFrame(moveTick);
+  }
+  requestAnimationFrame(moveTick);
 }
 
 function startSnailMovement() {
   const snail = document.getElementById('snail-img');
   if (!snail) return;
 
-  // 코코피트 바닥 범위 (이미지 기준 %)
-  // 사육상자 내부 코코피트가 깔린 하단 영역
   const BOUNDS = { left:6, right:72, top:52, bottom:72 };
-  const SNAIL_W = 11;
-  const SNAIL_H = 7;
+  const SNAIL_W = 11, SNAIL_H = 7;
 
   let x = 25, y = 60;
   let tx = 40, ty = 63;
-  let frameIdx = 0;
-  let frameTimer = 0;
-  let restTimer = 0;
-  let isResting = false;
+  let frameIdx = 0, frameTimer = 0;
+  let restTimer = 0, isResting = false;
   let facingLeft = false;
 
   snail.style.display = 'block';
@@ -1033,14 +1236,20 @@ function startSnailMovement() {
     const dt = Math.min(ts - lastTime, 50);
     lastTime = ts;
 
-    // 사망 시 루프 중단
     if (snailDead) return;
+
+    // 행복도 70% 이하 → 은신처 이동 루틴
+    if (gameState.happiness <= 70 && !snailInHide && !hideRoutineRunning && !snailStunned) {
+      hideRoutineRunning = true;
+      if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
+      goToHide(snail, () => enterHide(snail, pickNewTarget, tick));
+      return;
+    }
 
     if (snailStunned) {
       snailAnimTimer = requestAnimationFrame(tick);
       return;
     }
-
     if (isResting) {
       restTimer -= dt;
       if (restTimer <= 0) { isResting = false; pickNewTarget(); }
@@ -1048,31 +1257,21 @@ function startSnailMovement() {
       return;
     }
 
-    const dx = tx - x;
-    const dy = ty - y;
+    const dx = tx - x; const dy = ty - y;
     const dist = Math.sqrt(dx*dx + dy*dy);
-
     if (dist < 0.4) {
       pickNewTarget();
     } else {
       const step = Math.min(SPEED * dt, dist);
-      x += (dx / dist) * step;
-      y += (dy / dist) * step;
-
+      x += (dx/dist)*step; y += (dy/dist)*step;
       facingLeft = dx < 0;
-      // scaleX 반전 + 달팽이2 밝기 보정
       const brightness = frameIdx === 1 ? 'brightness(1.05)' : 'brightness(1)';
-      snail.style.filter = snailStunned
-        ? 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))'
-        : `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${brightness}`;
+      snail.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${brightness}`;
       snail.style.transform = facingLeft ? 'scaleX(-1)' : 'scaleX(1)';
-      snail.style.left = x + '%';
-      snail.style.top  = y + '%';
-
+      snail.style.left = x + '%'; snail.style.top = y + '%';
       frameTimer += dt;
       if (frameTimer > 600) {
-        frameTimer = 0;
-        frameIdx = 1 - frameIdx;
+        frameTimer = 0; frameIdx = 1 - frameIdx;
         if (!snailStunned) {
           snail.src = frameIdx === 0 ? IMGS.snail1 : IMGS.snail2;
           const br = frameIdx === 1 ? 'brightness(1.05)' : 'brightness(1)';
@@ -1080,12 +1279,52 @@ function startSnailMovement() {
         }
       }
     }
-
     snailAnimTimer = requestAnimationFrame(tick);
+
+    // 위치 변수 동기화 (goToHide 이후 재개 시 필요)
+    x = parseFloat(snail.style.left);
+    y = parseFloat(snail.style.top);
   }
 
   if (snailAnimTimer) cancelAnimationFrame(snailAnimTimer);
   snailAnimTimer = requestAnimationFrame(tick);
+}
+
+function enterHide(snail, pickNewTarget, tick) {
+  snailInHide = true;
+  snail.style.display = 'none';
+  showHideBubble(true);
+
+  // 4초 동안 행복도 +20
+  gameState.happiness = Math.min(100, gameState.happiness + 20);
+  updateSnailStatsUI();
+
+  setTimeout(() => {
+    showHideBubble(false);
+    snailInHide = false;
+
+    if (snailDead) return;
+
+    if (gameState.happiness <= 70) {
+      // 아직 행복도 부족 → 1초 잠깐 나왔다가 다시 들어감
+      snail.style.display = 'block';
+      pickNewTarget();
+      setTimeout(() => {
+        if (!snailDead && gameState.happiness <= 70) {
+          hideRoutineRunning = true;
+          goToHide(snail, () => enterHide(snail, pickNewTarget, tick));
+        } else {
+          hideRoutineRunning = false;
+          snailAnimTimer = requestAnimationFrame(tick);
+        }
+      }, 1000);
+    } else {
+      // 행복도 회복 → 정상 이동 재개
+      hideRoutineRunning = false;
+      snail.style.display = 'block';
+      snailAnimTimer = requestAnimationFrame(tick);
+    }
+  }, 4000);
 }
 
 function showCompletionPanel() {
