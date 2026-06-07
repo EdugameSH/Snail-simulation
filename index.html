@@ -1351,14 +1351,6 @@ function finishSpray() {
     renderStep();
   }, 1200);
 }
-  // humidityTimer는 자동 종료됨 (step이 spray가 아닐 때 clearInterval)
-  showToast('💧 촉촉하게 완료!', '#e3f2fd', '#0277bd');
-  setTimeout(() => {
-    hideToast();
-    gameState.step++;
-    renderStep();
-  }, 1200);
-}
 
 // ===== 유틸 =====
 function setSidePanel(html) {
