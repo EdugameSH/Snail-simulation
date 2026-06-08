@@ -426,6 +426,9 @@ const IMGS = {
   snail2:       'images/기본달팽이2.png',
   snailStun:    'images/스턴달팽이.png',
   snailShell:   'images/달팽이껍질.png',
+  snailRaise:   'images/고개든달팽이.png',
+  wallSnail1:   'images/벽달팽이1.png',
+  wallSnail2:   'images/벽달팽이2.png',
 };
 
 let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
@@ -453,6 +456,10 @@ let lifeWarningShown = false;
 // 은신처 관련
 let snailInHide = false;
 let hideRoutineRunning = false;
+
+// 벽 타기 관련
+let snailMode = 'ground'; // 'ground' | 'raising' | 'wall' | 'descending'
+let wallModeActive = false;
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -870,16 +877,37 @@ function stunSnail(e) {
   const snail = document.getElementById('snail-img');
   const r = snail.getBoundingClientRect();
   const relX = (e.clientX - r.left) / r.width;
-  const facingLeft = snail.style.transform === 'scaleX(-1)';
-  const isFaceClick = facingLeft ? relX > 0.65 : relX < 0.35;
+  const facingLeft = snail.style.transform.includes('scaleX(-1)');
+  // 벽 모드일 때는 얼굴이 위쪽 (relY < 0.35)
+  let isFaceClick;
+  if (snailMode === 'wall') {
+    const relY = (e.clientY - r.top) / r.height;
+    isFaceClick = relY < 0.35;
+  } else {
+    isFaceClick = facingLeft ? relX > 0.65 : relX < 0.35;
+  }
   if (!isFaceClick) return;
+
+  // 은신처 이동 중 → 취소
+  if (hideRoutineRunning) {
+    hideRoutineRunning = false;
+    if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
+  }
+  // 벽 모드 중 → ground 복귀
+  if (snailMode !== 'ground') {
+    snailMode = 'ground';
+    wallModeActive = false;
+    snail.style.width = '11%';
+    snail.style.maxWidth = '50px';
+    snail.style.transformOrigin = 'center center';
+  }
 
   snailStunned = true;
   snail.src = IMGS.snailStun;
+  snail.style.transform = 'scaleX(1)';
   snail.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))';
   showStunEffect(snail);
 
-  // 행복 -10%
   gameState.happiness = Math.max(0, gameState.happiness - 10);
   updateSnailStatsUI();
   checkSnailWarnings();
@@ -890,6 +918,13 @@ function stunSnail(e) {
       snailStunned = false;
       snail.src = IMGS.snail1;
       snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+      // 스턴 해제 후 행복도 재판정
+      if (gameState.happiness <= 50 && !snailInHide) {
+        hideRoutineRunning = true;
+        goToHide(snail, () => enterHide(snail));
+      } else {
+        startSnailMovement();
+      }
     }
   }, 3000);
 }
@@ -991,6 +1026,7 @@ function resetGame() {
   if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
   snailDead = false; snailStunned = false; lifeWarningCount = 0; lifeWarningShown = false;
   snailInHide = false; hideRoutineRunning = false;
+  snailMode = 'ground'; wallModeActive = false;
   gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
 
   // 달팽이 숨김
@@ -1168,26 +1204,28 @@ function showHideBubble(show) {
   }
 }
 
-// 은신처 이동 함수
+// 은신처 이동
 function goToHide(snail, onArrival) {
-  // 은신처 위치(%) — hide-item CSS와 동일
   const hideX = 64, hideY = 58;
-  snailInHide = false;
-
   let x = parseFloat(snail.style.left) || 25;
   let y = parseFloat(snail.style.top)  || 60;
-  const SPEED = 0.022; // 좀 더 빠르게
+  const SPEED = 0.022;
   let lastTime = null;
+
+  snail.src = IMGS.snail1;
+  snail.style.width = '11%';
+  snail.style.maxWidth = '50px';
+  snail.style.transformOrigin = 'center center';
 
   function moveTick(ts) {
     if (snailDead) return;
+    // 스턴 발생 시 이동 중단 (stunSnail에서 hideRoutineRunning=false로 세팅됨)
+    if (!hideRoutineRunning) return;
     if (!lastTime) lastTime = ts;
     const dt = Math.min(ts - lastTime, 50);
     lastTime = ts;
-
     const dx = hideX - x, dy = hideY - y;
     const dist = Math.sqrt(dx*dx + dy*dy);
-
     if (dist < 0.8) {
       snail.style.left = hideX + '%';
       snail.style.top  = hideY + '%';
@@ -1203,33 +1241,104 @@ function goToHide(snail, onArrival) {
   requestAnimationFrame(moveTick);
 }
 
+function enterHide(snail) {
+  snailInHide = true;
+  snail.style.display = 'none';
+  showHideBubble(true);
+
+  gameState.happiness = Math.min(100, gameState.happiness + 20);
+  updateSnailStatsUI();
+
+  setTimeout(() => {
+    showHideBubble(false);
+    snailInHide = false;
+    if (snailDead) return;
+
+    snail.style.display = 'block';
+    if (gameState.happiness <= 50) {
+      // 1초 나왔다가 다시 은신처
+      setTimeout(() => {
+        if (!snailDead && gameState.happiness <= 50) {
+          hideRoutineRunning = true;
+          goToHide(snail, () => enterHide(snail));
+        } else {
+          hideRoutineRunning = false;
+          startSnailMovement();
+        }
+      }, 1000);
+    } else {
+      hideRoutineRunning = false;
+      startSnailMovement();
+    }
+  }, 4000);
+}
+
 function startSnailMovement() {
   const snail = document.getElementById('snail-img');
   if (!snail) return;
+  if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
 
-  const BOUNDS = { left:6, right:72, top:52, bottom:72 };
+  // 바닥 영역
+  const GROUND = { left:6, right:72, top:52, bottom:72 };
+  // 벽 영역 (코코피트 위쪽 사육상자 내벽)
+  const WALL   = { left:8, right:80, top:10, bottom:50 };
+  // 코코피트 경계 (바닥→벽 전환 y값)
+  const COCO_EDGE_Y = 52;
+
   const SNAIL_W = 11, SNAIL_H = 7;
+  const SPEED_GROUND = 0.014;
+  const SPEED_WALL   = 0.012;
 
-  let x = 25, y = 60;
+  snailMode = 'ground';
+  wallModeActive = false;
+
+  let x = parseFloat(snail.style.left) || 25;
+  let y = parseFloat(snail.style.top)  || 62;
   let tx = 40, ty = 63;
   let frameIdx = 0, frameTimer = 0;
   let restTimer = 0, isResting = false;
-  let facingLeft = false;
+  let lastTime = null;
+
+  // 벽 올라가기 쿨타임 (너무 자주 안 타도록)
+  let wallCooldown = 0;
+  const WALL_CHANCE = 0.15; // 새 목표 선택 시 15% 확률로 벽 타기
 
   snail.style.display = 'block';
-  snail.style.left = x + '%';
-  snail.style.top  = y + '%';
+  snail.style.width = '11%';
+  snail.style.maxWidth = '50px';
+  snail.style.transformOrigin = 'center center';
 
-  function pickNewTarget() {
-    tx = BOUNDS.left + Math.random() * (BOUNDS.right  - BOUNDS.left  - SNAIL_W);
-    ty = BOUNDS.top  + Math.random() * (BOUNDS.bottom - BOUNDS.top   - SNAIL_H);
+  function setGroundImg(idx) {
+    snail.src = idx === 0 ? IMGS.snail1 : IMGS.snail2;
+    snail.style.width = '11%';
+    snail.style.maxWidth = '50px';
+    const br = idx === 1 ? 'brightness(1.05)' : 'brightness(1)';
+    snail.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${br}`;
+    snail.style.transformOrigin = 'center center';
+  }
+
+  function pickGroundTarget() {
+    tx = GROUND.left + Math.random() * (GROUND.right  - GROUND.left  - SNAIL_W);
+    ty = GROUND.top  + Math.random() * (GROUND.bottom - GROUND.top   - SNAIL_H);
     isResting = Math.random() < 0.25;
     restTimer = isResting ? (2000 + Math.random() * 3000) : 0;
   }
-  pickNewTarget();
+  function pickWallTarget() {
+    tx = WALL.left + Math.random() * (WALL.right  - WALL.left  - SNAIL_W);
+    ty = WALL.top  + Math.random() * (WALL.bottom - WALL.top   - SNAIL_H);
+  }
+  pickGroundTarget();
 
-  const SPEED = 0.014;
-  let lastTime = null;
+  // 벽 타기 시퀀스
+  function startWallSequence() {
+    if (snailStunned || snailDead || hideRoutineRunning) return;
+    wallModeActive = true;
+
+    // 1) 코코피트 앞쪽 경계까지 이동
+    snailMode = 'raising_approach';
+    tx = x; // x는 유지
+    ty = COCO_EDGE_Y;
+  }
 
   function tick(ts) {
     if (!lastTime) lastTime = ts;
@@ -1237,94 +1346,166 @@ function startSnailMovement() {
     lastTime = ts;
 
     if (snailDead) return;
+    if (snailStunned) { snailAnimTimer = requestAnimationFrame(tick); return; }
 
-    // 행복도 70% 이하 → 은신처 이동 루틴
-    if (gameState.happiness <= 70 && !snailInHide && !hideRoutineRunning && !snailStunned) {
+    // 행복도 50% 이하 → 은신처
+    if (gameState.happiness <= 50 && !snailInHide && !hideRoutineRunning) {
       hideRoutineRunning = true;
+      wallModeActive = false;
+      snailMode = 'ground';
       if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
-      goToHide(snail, () => enterHide(snail, pickNewTarget, tick));
+      goToHide(snail, () => enterHide(snail));
       return;
     }
 
-    if (snailStunned) {
-      snailAnimTimer = requestAnimationFrame(tick);
-      return;
-    }
-    if (isResting) {
-      restTimer -= dt;
-      if (restTimer <= 0) { isResting = false; pickNewTarget(); }
-      snailAnimTimer = requestAnimationFrame(tick);
-      return;
-    }
+    // ===== 바닥 모드 =====
+    if (snailMode === 'ground') {
+      wallCooldown = Math.max(0, wallCooldown - dt);
 
-    const dx = tx - x; const dy = ty - y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < 0.4) {
-      pickNewTarget();
-    } else {
-      const step = Math.min(SPEED * dt, dist);
-      x += (dx/dist)*step; y += (dy/dist)*step;
-      facingLeft = dx < 0;
-      const brightness = frameIdx === 1 ? 'brightness(1.05)' : 'brightness(1)';
-      snail.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${brightness}`;
-      snail.style.transform = facingLeft ? 'scaleX(-1)' : 'scaleX(1)';
-      snail.style.left = x + '%'; snail.style.top = y + '%';
+      if (isResting) {
+        restTimer -= dt;
+        if (restTimer <= 0) { isResting = false; pickGroundTarget(); }
+        snailAnimTimer = requestAnimationFrame(tick);
+        return;
+      }
+
+      const dx = tx - x, dy = ty - y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 0.5) {
+        // 목표 도달 → 벽 타기 여부 판정
+        if (wallCooldown <= 0 && Math.random() < WALL_CHANCE) {
+          wallCooldown = 30000; // 30초 쿨타임
+          startWallSequence();
+        } else {
+          pickGroundTarget();
+        }
+      } else {
+        const step = Math.min(SPEED_GROUND * dt, dist);
+        x += (dx/dist)*step; y += (dy/dist)*step;
+        snail.style.left = x + '%'; snail.style.top = y + '%';
+        snail.style.transform = dx < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+        frameTimer += dt;
+        if (frameTimer > 600) {
+          frameTimer = 0; frameIdx = 1 - frameIdx;
+          setGroundImg(frameIdx);
+        }
+      }
+
+    // ===== 경계선 접근 (벽 타기 준비) =====
+    } else if (snailMode === 'raising_approach') {
+      const dx = tx - x, dy = ty - y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 0.8) {
+        // 경계 도달 → 고개드는 이미지로 전환
+        snailMode = 'raising';
+        snail.src = IMGS.snailRaise;
+        snail.style.width = '9%';
+        snail.style.maxWidth = '42px';
+        snail.style.transform = 'scaleX(1)';
+        snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+        // 0.8초 후 벽 이동 시작
+        setTimeout(() => {
+          if (!snailDead && !snailStunned && wallModeActive) {
+            snailMode = 'wall';
+            snail.src = IMGS.wallSnail1;
+            snail.style.width = '9%';
+            snail.style.maxWidth = '42px';
+            snail.style.transform = 'rotate(0deg)';
+            pickWallTarget();
+          } else {
+            snailMode = 'ground';
+            wallModeActive = false;
+            setGroundImg(0);
+            pickGroundTarget();
+          }
+        }, 800);
+      } else {
+        const step = Math.min(SPEED_GROUND * dt, dist);
+        x += (dx/dist)*step; y += (dy/dist)*step;
+        snail.style.left = x + '%'; snail.style.top = y + '%';
+        snail.style.transform = dx < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+      }
+
+    // ===== 벽 이동 =====
+    } else if (snailMode === 'wall') {
+      if (isResting) {
+        restTimer -= dt;
+        if (restTimer <= 0) { isResting = false; }
+        snailAnimTimer = requestAnimationFrame(tick);
+        return;
+      }
+
+      const dx = tx - x, dy = ty - y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (dist < 0.8) {
+        // 벽 목표 도달 → 내려오거나 계속 벽 이동
+        if (Math.random() < 0.4 || y < WALL.top + 5) {
+          // 내려오기 시작
+          snailMode = 'descending';
+          ty = COCO_EDGE_Y + 5;
+          tx = x;
+        } else {
+          pickWallTarget();
+          // 가끔 쉬기
+          if (Math.random() < 0.2) { isResting = true; restTimer = 1000 + Math.random()*2000; }
+        }
+      } else {
+        const step = Math.min(SPEED_WALL * dt, dist);
+        x += (dx/dist)*step; y += (dy/dist)*step;
+        snail.style.left = x + '%'; snail.style.top = y + '%';
+
+        // 방향에 따라 이미지 회전
+        // 각도 계산
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        // 내려가는 중(dy > 0)이면 머리가 아래를 향하도록 180도 회전
+        if (dy > 5) {
+          snail.style.transform = `rotate(${angle + 90}deg)`;
+        } else {
+          snail.style.transform = `rotate(${angle - 90}deg)`;
+        }
+
+        frameTimer += dt;
+        if (frameTimer > 600) {
+          frameTimer = 0; frameIdx = 1 - frameIdx;
+          snail.src = frameIdx === 0 ? IMGS.wallSnail1 : IMGS.wallSnail2;
+        }
+      }
+
+    // ===== 내려오기 =====
+    } else if (snailMode === 'descending') {
+      const dx = tx - x, dy = ty - y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      // 내려오는 중: 머리가 아래를 향하도록 180도
+      const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+      snail.style.transform = `rotate(${angle + 90}deg)`;
+
       frameTimer += dt;
       if (frameTimer > 600) {
         frameTimer = 0; frameIdx = 1 - frameIdx;
-        if (!snailStunned) {
-          snail.src = frameIdx === 0 ? IMGS.snail1 : IMGS.snail2;
-          const br = frameIdx === 1 ? 'brightness(1.05)' : 'brightness(1)';
-          snail.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${br}`;
-        }
+        snail.src = frameIdx === 0 ? IMGS.wallSnail1 : IMGS.wallSnail2;
+      }
+
+      if (dist < 0.8) {
+        // 바닥 도착 → ground 복귀
+        snailMode = 'ground';
+        wallModeActive = false;
+        frameIdx = 0;
+        setGroundImg(0);
+        snail.style.transform = 'scaleX(1)';
+        pickGroundTarget();
+      } else {
+        const step = Math.min(SPEED_WALL * dt, dist);
+        x += (dx/dist)*step; y += (dy/dist)*step;
+        snail.style.left = x + '%'; snail.style.top = y + '%';
       }
     }
-    snailAnimTimer = requestAnimationFrame(tick);
 
-    // 위치 변수 동기화 (goToHide 이후 재개 시 필요)
-    x = parseFloat(snail.style.left);
-    y = parseFloat(snail.style.top);
+    snailAnimTimer = requestAnimationFrame(tick);
   }
 
-  if (snailAnimTimer) cancelAnimationFrame(snailAnimTimer);
   snailAnimTimer = requestAnimationFrame(tick);
-}
-
-function enterHide(snail, pickNewTarget, tick) {
-  snailInHide = true;
-  snail.style.display = 'none';
-  showHideBubble(true);
-
-  // 4초 동안 행복도 +20
-  gameState.happiness = Math.min(100, gameState.happiness + 20);
-  updateSnailStatsUI();
-
-  setTimeout(() => {
-    showHideBubble(false);
-    snailInHide = false;
-
-    if (snailDead) return;
-
-    if (gameState.happiness <= 70) {
-      // 아직 행복도 부족 → 1초 잠깐 나왔다가 다시 들어감
-      snail.style.display = 'block';
-      pickNewTarget();
-      setTimeout(() => {
-        if (!snailDead && gameState.happiness <= 70) {
-          hideRoutineRunning = true;
-          goToHide(snail, () => enterHide(snail, pickNewTarget, tick));
-        } else {
-          hideRoutineRunning = false;
-          snailAnimTimer = requestAnimationFrame(tick);
-        }
-      }, 1000);
-    } else {
-      // 행복도 회복 → 정상 이동 재개
-      hideRoutineRunning = false;
-      snail.style.display = 'block';
-      snailAnimTimer = requestAnimationFrame(tick);
-    }
-  }, 4000);
 }
 
 function showCompletionPanel() {
