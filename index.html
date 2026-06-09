@@ -452,6 +452,9 @@ let snailAnimTimer = null;
 let snailDead = false;
 let lifeWarningCount = 0;
 let lifeWarningShown = false;
+let stunCount = 0;          // 스턴 횟수
+let dryTimer = 0;           // 연속 건조 누적 시간(초)
+let dryDeathTimer = null;   // 건조 사망 타이머
 
 // 은신처 관련
 let snailInHide = false;
@@ -756,6 +759,8 @@ function showSnailStep() {
   lifeWarningShown = false;
   snailInHide = false;
   hideRoutineRunning = false;
+  stunCount = 0;
+  dryTimer = 0;
   gameState.hunger = 100;
   gameState.happiness = 100;
 
@@ -903,10 +908,15 @@ function stunSnail(e) {
   }
 
   snailStunned = true;
+  stunCount++;
   snail.src = IMGS.snailStun;
   snail.style.transform = 'scaleX(1)';
   snail.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))';
   showStunEffect(snail);
+
+  // 경고 토스트
+  showToast('🐌 달팽이의 더듬이를 건드리면 달팽이가 스트레스를 받아요!', '#fff3e0', '#e65100');
+  setTimeout(() => hideToast(), 2500);
 
   gameState.happiness = Math.max(0, gameState.happiness - 10);
   updateSnailStatsUI();
@@ -915,10 +925,14 @@ function stunSnail(e) {
   if (snailStunTimeout) clearTimeout(snailStunTimeout);
   snailStunTimeout = setTimeout(() => {
     if (!snailDead) {
+      // 스턴 6회 → 사망
+      if (stunCount >= 6) {
+        killSnail('stun');
+        return;
+      }
       snailStunned = false;
       snail.src = IMGS.snail1;
       snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
-      // 스턴 해제 후 행복도 재판정
       if (gameState.happiness <= 50 && !snailInHide) {
         hideRoutineRunning = true;
         goToHide(snail, () => enterHide(snail));
@@ -947,21 +961,20 @@ function showStunEffect(snail) {
 }
 
 // ===== 달팽이 사망 =====
-function killSnail() {
+function killSnail(cause) {
   if (snailDead) return;
   snailDead = true;
   stopStatDrain();
+  if (dryDeathTimer) { clearInterval(dryDeathTimer); dryDeathTimer = null; }
   if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
 
   const snail = document.getElementById('snail-img');
   if (!snail) return;
 
-  // 사망 애니메이션: 흔들리다가 쓰러짐
   snail.style.transition = 'all 0.8s ease';
   snail.style.animation = 'snailDie 0.8s ease forwards';
 
   setTimeout(() => {
-    // 껍질 이미지로 교체 (달팽이 껍질 크기 = 기본달팽이 껍질 부분과 동일하게 ~11%)
     snail.src = IMGS.snailShell;
     snail.style.animation = '';
     snail.style.width = '11%';
@@ -969,30 +982,29 @@ function killSnail() {
     snail.style.transform = 'none';
     snail.onclick = null;
 
-    // 게이지 모두 0으로, 경고 숨김
     gameState.humidity = 0; gameState.hunger = 0; gameState.happiness = 0;
-    const hb = document.getElementById('snail-humidity-bar');
-    const fb = document.getElementById('snail-hunger-bar');
-    const hpb= document.getElementById('snail-happiness-bar');
-    if (hb)  { hb.style.width  = '0%'; }
-    if (fb)  { fb.style.width  = '0%'; }
-    if (hpb) { hpb.style.width = '0%'; }
+    ['snail-humidity-bar','snail-hunger-bar','snail-happiness-bar'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.width = '0%';
+    });
     ['warn-humidity','warn-hunger','warn-happiness'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
 
-    // 3초 후 안내 팝업
-    setTimeout(() => showDeathMessage(), 3000);
+    // 원인별 메시지 (4초 후)
+    setTimeout(() => {
+      if (cause === 'stun') {
+        showGamePopup('😵', '작은 생물일수록 스트레스에 큰 영향을 받습니다.\n달팽이가 행복하도록 건드리지 말아주세요.', [{ label:'→', action:'showRestartQuestion' }]);
+      } else if (cause === 'dry') {
+        showGamePopup('💧', '달팽이는 습도가 매우 중요한 생물입니다.\n촉촉한 환경을 유지해주세요.', [{ label:'→', action:'showRestartQuestion' }]);
+      } else if (cause === 'hunger') {
+        showGamePopup('🥬', '우리가 배고픔을 느끼듯이 달팽이도 배고픔을 느낍니다.\n달팽이를 굶기지 마세요.', [{ label:'→', action:'showRestartQuestion' }]);
+      } else {
+        showGamePopup('😔', '작은 생물일지라도 당신의 장난감이 아닙니다.\n달팽이를 좀 더 사랑으로 아껴주세요.', [{ label:'→', action:'showRestartQuestion' }]);
+      }
+    }, 4000);
   }, 900);
-}
-
-function showDeathMessage() {
-  showGamePopup(
-    '😔',
-    '작은 생물일지라도 당신의 장난감이 아닙니다.\n달팽이를 좀 더 사랑으로 아껴주세요.',
-    [{ label:'→', action:'showRestartQuestion' }]
-  );
 }
 
 function showRestartQuestion() {
@@ -1025,6 +1037,8 @@ function resetGame() {
   if (humidityTimer) { clearInterval(humidityTimer); humidityTimer = null; }
   if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
   snailDead = false; snailStunned = false; lifeWarningCount = 0; lifeWarningShown = false;
+  stunCount = 0; dryTimer = 0;
+  if (dryDeathTimer) { clearInterval(dryDeathTimer); dryDeathTimer = null; }
   snailInHide = false; hideRoutineRunning = false;
   snailMode = 'ground'; wallModeActive = false;
   gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
@@ -1280,10 +1294,13 @@ function startSnailMovement() {
 
   // 바닥 영역
   const GROUND = { left:6, right:72, top:52, bottom:72 };
-  // 벽 영역 (코코피트 위쪽 사육상자 내벽)
-  const WALL   = { left:8, right:80, top:10, bottom:50 };
-  // 코코피트 경계 (바닥→벽 전환 y값)
+  // 벽 영역 — top:22 (뚜껑 아래), 앞쪽 벽에 붙어서 이동
+  const WALL   = { left:6, right:72, top:22, bottom:50 };
+  // 코코피트 앞쪽 경계 y값 (바닥→벽 전환점)
   const COCO_EDGE_Y = 52;
+  // 벽 타기 시 x 고정 범위: 앞쪽 경계에 붙어서 이동 (left~left+30 범위 앞쪽)
+  const WALL_X_MIN = 8;
+  const WALL_X_MAX = 65;
 
   const SNAIL_W = 11, SNAIL_H = 7;
   const SPEED_GROUND = 0.014;
@@ -1324,8 +1341,8 @@ function startSnailMovement() {
     restTimer = isResting ? (2000 + Math.random() * 3000) : 0;
   }
   function pickWallTarget() {
-    tx = WALL.left + Math.random() * (WALL.right  - WALL.left  - SNAIL_W);
-    ty = WALL.top  + Math.random() * (WALL.bottom - WALL.top   - SNAIL_H);
+    tx = WALL_X_MIN + Math.random() * (WALL_X_MAX - WALL_X_MIN);
+    ty = WALL.top  + Math.random() * (WALL.bottom - WALL.top);
   }
   pickGroundTarget();
 
@@ -1333,10 +1350,9 @@ function startSnailMovement() {
   function startWallSequence() {
     if (snailStunned || snailDead || hideRoutineRunning) return;
     wallModeActive = true;
-
-    // 1) 코코피트 앞쪽 경계까지 이동
     snailMode = 'raising_approach';
-    tx = x; // x는 유지
+    // 앞쪽 경계: x는 현재 위치 유지, y만 코코피트 앞쪽 경계로
+    tx = Math.max(WALL_X_MIN, Math.min(WALL_X_MAX, x));
     ty = COCO_EDGE_Y;
   }
 
@@ -1399,8 +1415,8 @@ function startSnailMovement() {
         // 경계 도달 → 고개드는 이미지로 전환
         snailMode = 'raising';
         snail.src = IMGS.snailRaise;
-        snail.style.width = '9%';
-        snail.style.maxWidth = '42px';
+        snail.style.width = '13.5%';
+        snail.style.maxWidth = '63px';
         snail.style.transform = 'scaleX(1)';
         snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
         // 0.8초 후 벽 이동 시작
@@ -1408,8 +1424,8 @@ function startSnailMovement() {
           if (!snailDead && !snailStunned && wallModeActive) {
             snailMode = 'wall';
             snail.src = IMGS.wallSnail1;
-            snail.style.width = '9%';
-            snail.style.maxWidth = '42px';
+            snail.style.width = '13.5%';
+            snail.style.maxWidth = '63px';
             snail.style.transform = 'rotate(0deg)';
             pickWallTarget();
           } else {
@@ -1494,6 +1510,8 @@ function startSnailMovement() {
         frameIdx = 0;
         setGroundImg(0);
         snail.style.transform = 'scaleX(1)';
+        snail.style.width = '11%';
+        snail.style.maxWidth = '50px';
         pickGroundTarget();
       } else {
         const step = Math.min(SPEED_WALL * dt, dist);
@@ -1695,6 +1713,8 @@ function startHumidityDrain() {
 // 달팽이 단계: 습도+배고픔+행복 통합 감소
 function startStatDrain() {
   if (statDrainTimer) clearInterval(statDrainTimer);
+  dryTimer = 0;
+  let hungerTimer = 0;
   statDrainTimer = setInterval(() => {
     if (snailDead) return;
     gameState.humidity   = Math.max(0, gameState.humidity   - HUMIDITY_DRAIN);
@@ -1702,6 +1722,22 @@ function startStatDrain() {
     gameState.happiness  = Math.max(0, gameState.happiness  - HAPPINESS_DRAIN);
     updateSnailStatsUI();
     checkSnailWarnings();
+
+    // 건조 연속 20초 사망
+    if (gameState.humidity <= 10) {
+      dryTimer++;
+      if (dryTimer >= 20) { killSnail('dry'); return; }
+    } else {
+      dryTimer = 0;
+    }
+
+    // 배고픔 연속 20초 사망
+    if (gameState.hunger <= 10) {
+      hungerTimer++;
+      if (hungerTimer >= 20) { killSnail('hunger'); return; }
+    } else {
+      hungerTimer = 0;
+    }
   }, 1000);
 }
 
@@ -1749,7 +1785,7 @@ function checkSnailWarnings() {
       if (wHappiness) wHappiness.style.display = 'block';
       if (lifeWarningCount >= 2) {
         // 2번째 경고 → 3초 후 사망
-        setTimeout(() => killSnail(), 3000);
+        setTimeout(() => killSnail('happiness'), 3000);
       }
     }
   } else {
