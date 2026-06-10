@@ -961,14 +961,16 @@ function stunSnail(e) {
   if (snailMode !== 'ground') {
     snailMode = 'ground';
     wallModeActive = false;
-    snail.style.width = '11%';
-    snail.style.maxWidth = '50px';
+    snail.style.width = snailSizeW + '%';
+    snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
     snail.style.transformOrigin = 'center center';
   }
 
   snailStunned = true;
   stunCount++;
   snail.src = IMGS.snailStun;
+  snail.style.width = snailSizeW + '%';
+  snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
   snail.style.transform = 'scaleX(1)';
   snail.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))';
   showStunEffect(snail);
@@ -991,6 +993,8 @@ function stunSnail(e) {
       }
       snailStunned = false;
       snail.src = IMGS.snail1;
+      snail.style.width = snailSizeW + '%';
+      snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
       snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
       if (gameState.happiness <= 50 && !snailInHide) {
         hideRoutineRunning = true;
@@ -1120,11 +1124,11 @@ function startFoodTimer() {
 
   foodStageInterval = setInterval(() => {
     if (snailDead || !foodOnStage) { clearInterval(foodStageInterval); return; }
-    // 달팽이가 먹이 위에 있는지 체크 (x가 먹이 영역 근처인지)
+    // 스턴 중이거나 은신처 안에 있으면 누적 멈춤
+    if (snailStunned || snailInHide) return;
     const snail = document.getElementById('snail-img');
     const sx = parseFloat(snail.style.left) || 0;
-    // 먹이는 left:12% 부근
-    const onFood = sx > 5 && sx < 35 && snailMode === 'ground' && !snailInHide;
+    const onFood = sx > 5 && sx < 40 && snailMode === 'ground';
     if (onFood) {
       snailOnFoodTimer += 1000;
       if (snailOnFoodTimer >= 4000) {
@@ -1311,7 +1315,7 @@ function killSnail(cause) {
   setTimeout(() => {
     snail.src = IMGS.snailShell;
     snail.style.animation = '';
-    snail.style.width = '11%';
+    snail.style.width = snailSizeW + '%';
     snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
     snail.style.transform = 'none';
     snail.onclick = null;
@@ -1571,8 +1575,8 @@ function goToHide(snail, onArrival) {
   let lastTime = null;
 
   snail.src = IMGS.snail1;
-  snail.style.width = '11%';
-  snail.style.maxWidth = '50px';
+  snail.style.width = snailSizeW + '%';
+  snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
   snail.style.transformOrigin = 'center center';
 
   function moveTick(ts) {
@@ -1665,14 +1669,14 @@ function startSnailMovement() {
   const WALL_CHANCE = 0.15; // 새 목표 선택 시 15% 확률로 벽 타기
 
   snail.style.display = 'block';
-  snail.style.width = '11%';
-  snail.style.maxWidth = '50px';
+  snail.style.width = snailSizeW + '%';
+  snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
   snail.style.transformOrigin = 'center center';
 
   function setGroundImg(idx) {
     snail.src = idx === 0 ? IMGS.snail1 : IMGS.snail2;
-    snail.style.width = '11%';
-    snail.style.maxWidth = '50px';
+    snail.style.width = snailSizeW + '%';
+    snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
     const br = idx === 1 ? 'brightness(1.05)' : 'brightness(1)';
     snail.style.filter = `drop-shadow(0 2px 4px rgba(0,0,0,0.15)) ${br}`;
     snail.style.transformOrigin = 'center center';
@@ -1765,8 +1769,8 @@ function startSnailMovement() {
         // 경계 도달 → 고개드는 이미지로 전환
         snailMode = 'raising';
         snail.src = IMGS.snailRaise;
-        snail.style.width = '13.5%';
-        snail.style.maxWidth = '63px';
+        snail.style.width = (snailSizeW*1.23).toFixed(1) + '%';
+        snail.style.maxWidth = Math.round(snailSizeW*1.23*4.5) + 'px';
         snail.style.transform = 'scaleX(1)';
         snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
         // 0.8초 후 벽 이동 시작
@@ -1774,8 +1778,8 @@ function startSnailMovement() {
           if (!snailDead && !snailStunned && wallModeActive) {
             snailMode = 'wall';
             snail.src = IMGS.wallSnail1;
-            snail.style.width = '13.5%';
-            snail.style.maxWidth = '63px';
+            snail.style.width = (snailSizeW*1.23).toFixed(1) + '%';
+            snail.style.maxWidth = Math.round(snailSizeW*1.23*4.5) + 'px';
             snail.style.transform = 'rotate(0deg)';
             pickWallTarget();
           } else {
@@ -1860,8 +1864,8 @@ function startSnailMovement() {
         frameIdx = 0;
         setGroundImg(0);
         snail.style.transform = 'scaleX(1)';
-        snail.style.width = '11%';
-        snail.style.maxWidth = '50px';
+        snail.style.width = snailSizeW + '%';
+        snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
         pickGroundTarget();
       } else {
         const step = Math.min(SPEED_WALL * dt, dist);
