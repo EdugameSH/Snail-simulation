@@ -123,7 +123,7 @@ body {
 /* 은신처 */
 #hide-item {
   position: absolute;
-  bottom: 28%; left: 70%;
+  bottom: 18%; left: 70%;
   transform: translateX(-50%);
   width: 40% !important; max-width: 176px !important; height: auto !important;
   display: none;
@@ -377,9 +377,17 @@ body {
       <div id="terrarium-wrap">
         <img id="terrarium-img" src="" alt="사육상자">
         <img id="hide-item" src="" alt="은신처">
-        <!-- 달팽이 (사육상자 좌표계 기준 절대위치) -->
+        <!-- 먹이 -->
+        <img id="food-img" src="" alt="먹이" style="position:absolute;display:none;
+          bottom:25%;left:12%;width:18%;max-width:80px;height:auto;z-index:7;
+          filter:drop-shadow(0 2px 4px rgba(0,0,0,0.2));">
+        <!-- 칼슘제 가루 (먹이 위) -->
+        <img id="calcium-powder-img" src="images/칼슘제가루.png" alt="칼슘가루" style="position:absolute;display:none;
+          bottom:28%;left:8%;width:22%;max-width:95px;height:auto;z-index:8;opacity:0.85;
+          filter:drop-shadow(0 1px 3px rgba(0,0,0,0.15));">
+        <!-- 달팽이 -->
         <img id="snail-img" src="images/기본달팽이1.png" alt="달팽이" draggable="false"
-          style="position:absolute; display:none; z-index:8;
+          style="position:absolute; display:none; z-index:9;
                  width:11%; max-width:50px; height:auto;
                  transition: none; cursor:pointer;
                  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));"
@@ -426,6 +434,13 @@ const IMGS = {
   snailRaise:   'images/고개든달팽이.png',
   wallSnail1:   'images/벽달팽이1.png',
   wallSnail2:   'images/벽달팽이2.png',
+  // 먹이
+  lettuce1: 'images/상추1.png', lettuce2: 'images/상추2.png',
+  lettuce3: 'images/상추3.png', lettuce4: 'images/상추4.png',
+  carrot1:  'images/당근1.png', carrot2:  'images/당근2.png',
+  carrot3:  'images/당근3.png',
+  calcium:  'images/칼슘제.png',
+  calciumPowder: 'images/칼슘제가루.png',
 };
 
 let gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
@@ -438,7 +453,7 @@ let statDrainTimer = null;
 // 게이지 감소 속도 (초당 %)
 const HUMIDITY_MAX     = 100;
 const HUMIDITY_DRAIN   = 0.8;
-const HUNGER_DRAIN     = 0.4;
+const HUNGER_DRAIN     = 0.8;
 const HAPPINESS_DRAIN  = 0.3;
 const HUMIDITY_PER_SPRAY = 25;
 
@@ -460,6 +475,21 @@ let hideRoutineRunning = false;
 // 벽 타기 관련
 let snailMode = 'ground'; // 'ground' | 'raising' | 'wall' | 'descending'
 let wallModeActive = false;
+
+// 먹이 관련
+let currentFood = null;
+let foodOnStage = false;
+let calciumOnFood = false;
+let feedCount = 0;
+let quizShown = false;
+let snailOnFoodTimer = 0;   // 달팽이가 먹이 위에 있던 누적 시간(ms)
+let foodStageInterval = null;
+
+// 성장 관련
+let actionCount = 0;   // 분무기+먹이 합산
+let growth1Done = false;
+let growth2Done = false;
+let snailSizeW = 11;   // 현재 달팽이 크기 (%)
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -844,8 +874,31 @@ function startSnailLife() {
     <div style="margin-bottom:8px;">
       <div style="font-family:'Jua',sans-serif;font-size:11px;color:#555;margin-bottom:4px;">💦 분무기</div>
       <img id="snail-spray-static" src="images/분무기.png" alt="분무기" draggable="false"
-        style="width:56px;height:auto;cursor:grab;display:block;margin:0 auto;
+        style="width:48px;height:auto;cursor:grab;display:inline-block;margin-right:8px;vertical-align:middle;
                filter:drop-shadow(0 3px 6px rgba(0,0,0,0.2));user-select:none;touch-action:none;">
+    </div>
+
+    <!-- 먹이 -->
+    <div style="margin-bottom:8px;">
+      <div style="font-family:'Jua',sans-serif;font-size:11px;color:#555;margin-bottom:4px;">🥬 먹이 주기</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <img id="food-lettuce-btn" src="images/상추1.png" alt="상추" draggable="false"
+          style="width:44px;height:44px;object-fit:contain;cursor:grab;
+                 border:2px solid #c5e1a5;border-radius:10px;background:#f9fff5;padding:2px;
+                 user-select:none;touch-action:none;"
+          title="상추">
+        <img id="food-carrot-btn" src="images/당근1.png" alt="당근" draggable="false"
+          style="width:44px;height:44px;object-fit:contain;cursor:grab;
+                 border:2px solid #ffcc80;border-radius:10px;background:#fffde7;padding:2px;
+                 user-select:none;touch-action:none;"
+          title="당근">
+        <img id="food-calcium-btn" src="images/칼슘제.png" alt="칼슘제" draggable="false"
+          style="width:44px;height:44px;object-fit:contain;cursor:grab;
+                 border:2px solid #b0bec5;border-radius:10px;background:#f5f5f5;padding:2px;
+                 user-select:none;touch-action:none;"
+          title="칼슘제">
+      </div>
+      <div style="font-size:10px;color:#888;margin-top:3px;">← 드래그해서 사육상자에 넣어주세요</div>
     </div>
 
     <div class="step-badge">🐌 ${gameState.snailName}</div>
@@ -856,14 +909,19 @@ function startSnailLife() {
   `);
 
   setProgress(STEPS.length);
-
-  // 이름표 표시
   showNameTag();
 
-  // 분무기 드래그 초기화
+  // 변수 초기화
+  currentFood = null; foodOnStage = false; calciumOnFood = false;
+  feedCount = 0; quizShown = false; actionCount = 0;
+  growth1Done = false; growth2Done = false; snailSizeW = 11;
+
   requestAnimationFrame(() => {
-    const staticEl = document.getElementById('snail-spray-static');
-    if (staticEl) initSnailSprayDrag(staticEl);
+    const sprayEl = document.getElementById('snail-spray-static');
+    if (sprayEl) initSnailSprayDrag(sprayEl);
+    initFoodDrag('food-lettuce-btn', 'lettuce');
+    initFoodDrag('food-carrot-btn', 'carrot');
+    initFoodDrag('food-calcium-btn', 'calcium');
   });
 
   startStatDrain();
@@ -940,8 +998,275 @@ function stunSnail(e) {
   }, 3000);
 }
 
+// ===== 먹이 드래그 =====
+function initFoodDrag(btnId, foodType) {
+  const staticEl = document.getElementById(btnId);
+  if (!staticEl) return;
+  const bag = document.getElementById('spray-bag'); // 공용 드래그 엘리먼트 재활용 불가 → 동적 생성
+  let dragging = false, ox, oy;
+  let dragEl = null;
+
+  function getPos(e) { return e.touches ? {x:e.touches[0].clientX,y:e.touches[0].clientY} : {x:e.clientX,y:e.clientY}; }
+
+  function onStart(e) {
+    // 먹이가 이미 있고 칼슘제가 아니면 막기
+    if (foodType !== 'calcium' && foodOnStage) {
+      showToast('🥬 달팽이가 먹이를 다 먹을 때까지 기다려주세요!', '#fff3e0', '#e65100');
+      setTimeout(hideToast, 2000);
+      return;
+    }
+    if (foodType === 'calcium' && !foodOnStage) {
+      showToast('🥬 먹이를 먼저 주세요! 칼슘제는 먹이와 함께 줄 수 있어요.', '#fff3e0', '#e65100');
+      setTimeout(hideToast, 2200);
+      return;
+    }
+    if (foodType === 'calcium' && calciumOnFood) {
+      showToast('칼슘제가 이미 뿌려져 있어요.', '#fff3e0', '#e65100');
+      setTimeout(hideToast, 1500);
+      return;
+    }
+    e.preventDefault(); dragging = true;
+    const p = getPos(e), sr = staticEl.getBoundingClientRect();
+    ox = p.x - sr.left; oy = p.y - sr.top;
+    // 임시 드래그 이미지 생성
+    dragEl = document.createElement('img');
+    dragEl.src = staticEl.src;
+    dragEl.style.cssText = `position:absolute;width:50px;height:50px;object-fit:contain;
+      z-index:60;pointer-events:none;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.3));`;
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    dragEl.style.left = (sr.left - cr.left) + 'px';
+    dragEl.style.top  = (sr.top  - cr.top)  + 'px';
+    document.getElementById('game-container').appendChild(dragEl);
+  }
+  function onMove(e) {
+    if (!dragging || !dragEl) return; e.preventDefault();
+    const p = getPos(e), cr = document.getElementById('game-container').getBoundingClientRect();
+    dragEl.style.left = (p.x - cr.left - ox) + 'px';
+    dragEl.style.top  = (p.y - cr.top  - oy) + 'px';
+  }
+  function onEnd(e) {
+    if (!dragging || !dragEl) return; dragging = false;
+    const er = dragEl.getBoundingClientRect();
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    const playW = cr.width - 270;
+    const elCX = er.left + er.width/2 - cr.left;
+    dragEl.remove(); dragEl = null;
+
+    if (elCX < playW) {
+      if (foodType === 'calcium') {
+        applyCalcium();
+      } else {
+        placeFood(foodType);
+      }
+    }
+  }
+  staticEl.addEventListener('mousedown', onStart);
+  staticEl.addEventListener('touchstart', onStart, {passive:false});
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('mouseup', onEnd);
+  document.addEventListener('touchend', onEnd);
+}
+
+function placeFood(type) {
+  if (foodOnStage) return;
+  foodOnStage = true;
+  calciumOnFood = false;
+  currentFood = { type, stage: 1 };
+  snailOnFoodTimer = 0;
+
+  // 배고픔 게이지 체크 & 안내
+  feedCount++;
+  actionCount++;
+  checkGrowth();
+
+  // 안내문구
+  showToast('⚠️ 맵거나 향이 강한 먹이는 달팽이에게 위험해요.', '#fff8e1', '#f57f17');
+  setTimeout(hideToast, 2500);
+
+  // 3번째 먹이 시 퀴즈 (한 번만)
+  if (feedCount === 3 && !quizShown) {
+    quizShown = true;
+    setTimeout(() => showFoodQuiz(), 3000);
+  }
+
+  const foodImg = document.getElementById('food-img');
+  const imgMap = { lettuce: IMGS.lettuce1, carrot: IMGS.carrot1 };
+  foodImg.src = imgMap[type];
+  foodImg.style.display = 'block';
+
+  // 먹이 섭취 타이머 시작
+  startFoodTimer();
+}
+
+function applyCalcium() {
+  calciumOnFood = true;
+  const pw = document.getElementById('calcium-powder-img');
+  if (pw) pw.style.display = 'block';
+  showToast('🐚 칼슘제는 달팽이 껍데기를 단단하게 만드는데 도움이 됩니다.', '#f3e5f5', '#6a1b9a');
+  setTimeout(hideToast, 2800);
+}
+
+function startFoodTimer() {
+  if (foodStageInterval) clearInterval(foodStageInterval);
+  snailOnFoodTimer = 0;
+
+  foodStageInterval = setInterval(() => {
+    if (snailDead || !foodOnStage) { clearInterval(foodStageInterval); return; }
+    // 달팽이가 먹이 위에 있는지 체크 (x가 먹이 영역 근처인지)
+    const snail = document.getElementById('snail-img');
+    const sx = parseFloat(snail.style.left) || 0;
+    // 먹이는 left:12% 부근
+    const onFood = sx > 5 && sx < 35 && snailMode === 'ground' && !snailInHide;
+    if (onFood) {
+      snailOnFoodTimer += 1000;
+      if (snailOnFoodTimer >= 4000) {
+        snailOnFoodTimer = 0;
+        advanceFoodStage();
+      }
+    }
+  }, 1000);
+}
+
+function advanceFoodStage() {
+  if (!currentFood || !foodOnStage) return;
+  const { type } = currentFood;
+  currentFood.stage++;
+
+  // 칼슘제 가루 사라짐
+  const pw = document.getElementById('calcium-powder-img');
+  if (pw) pw.style.display = 'none';
+  calciumOnFood = false;
+
+  const foodImg = document.getElementById('food-img');
+  const stages = {
+    lettuce: [null, IMGS.lettuce1, IMGS.lettuce2, IMGS.lettuce3, IMGS.lettuce4, null],
+    carrot:  [null, IMGS.carrot1,  IMGS.carrot2,  IMGS.carrot3,  null],
+  };
+  const stageList = stages[type];
+  const nextSrc = stageList[currentFood.stage];
+
+  if (!nextSrc || currentFood.stage >= stageList.length - 1) {
+    // 다 먹음
+    foodImg.style.display = 'none';
+    foodOnStage = false;
+    currentFood = null;
+    if (foodStageInterval) { clearInterval(foodStageInterval); foodStageInterval = null; }
+    // 배고픔 +15%
+    gameState.hunger = Math.min(100, gameState.hunger + 15);
+    updateSnailStatsUI();
+    // 이동 범위 원복 (음식 위 고정 해제)
+  } else {
+    foodImg.src = nextSrc;
+  }
+}
+
+// 달팽이 먹이 위 이동 유도: startSnailMovement에서 사용할 먹이 목표 반환
+function getFoodTarget() {
+  if (!foodOnStage) return null;
+  // 먹이 위치: left~12~30%, bottom~25% → top으로 약 57~62%
+  return {
+    tx: 8 + Math.random() * 20,
+    ty: 55 + Math.random() * 8,
+  };
+}
+
+// ===== 성장 체크 =====
+function checkGrowth() {
+  if (!growth1Done && actionCount >= 12) {
+    growth1Done = true;
+    snailSizeW = 11 * 1.5; // 16.5%
+    applySnailSize();
+    showGamePopup('🎉', '달팽이가 성장했어요!', [{ label:'확인', action:'closePopup' }]);
+  } else if (growth1Done && !growth2Done && actionCount >= 27) {
+    growth2Done = true;
+    snailSizeW = 11 * 1.5 * 1.3; // ~21.5%
+    applySnailSize();
+    showGamePopup('🌱', '달팽이가 쑥쑥 자라고 있어요!', [{ label:'확인', action:'closePopup' }]);
+  }
+}
+
+function applySnailSize() {
+  const snail = document.getElementById('snail-img');
+  if (snail) {
+    snail.style.width = snailSizeW + '%';
+    snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
+  }
+}
+
+// 먹이 퀴즈
+function showFoodQuiz() {
+  let popup = document.getElementById('game-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'game-popup';
+    document.getElementById('game-container').appendChild(popup);
+  }
+  popup.style.cssText = `
+    position:absolute;top:50%;left:calc(50% - 135px);
+    transform:translate(-50%,-50%);
+    width:min(320px,calc(100vw - 290px));
+    background:white;border-radius:20px;
+    padding:20px 18px 16px;text-align:center;
+    box-shadow:0 8px 36px rgba(0,0,0,0.22);
+    z-index:60;display:block;
+    animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  `;
+  popup.innerHTML = `
+    <div style="font-size:32px;margin-bottom:8px;">🥗</div>
+    <div style="font-family:'Jua',sans-serif;font-size:13px;color:#1b5e20;margin-bottom:12px;line-height:1.6;">
+      달팽이에게 절대 주면 안 되는<br>먹이는 무엇일까요?
+    </div>
+    <div style="display:flex;flex-direction:column;gap:7px;">
+      <button onclick="answerFoodQuiz(this, true)"
+        style="background:#f1f8e9;border:2px solid #c5e1a5;border-radius:10px;
+               padding:9px 12px;font-family:'Gowun Dodum',sans-serif;font-size:12px;
+               color:#33691e;cursor:pointer;text-align:left;">
+        ① 소금기 있는 음식
+      </button>
+      <button onclick="answerFoodQuiz(this, false, 'egg')"
+        style="background:#f1f8e9;border:2px solid #c5e1a5;border-radius:10px;
+               padding:9px 12px;font-family:'Gowun Dodum',sans-serif;font-size:12px;
+               color:#33691e;cursor:pointer;text-align:left;">
+        ② 달달한 과일
+      </button>
+      <button onclick="answerFoodQuiz(this, false, 'eggshell')"
+        style="background:#f1f8e9;border:2px solid #c5e1a5;border-radius:10px;
+               padding:9px 12px;font-family:'Gowun Dodum',sans-serif;font-size:12px;
+               color:#33691e;cursor:pointer;text-align:left;">
+        ③ 달걀껍데기
+      </button>
+    </div>
+  `;
+}
+
+function answerFoodQuiz(btn, isCorrect, hint) {
+  const btns = btn.closest('div').querySelectorAll('button');
+  btns.forEach(b => b.style.pointerEvents = 'none');
+
+  if (isCorrect) {
+    btn.style.background = '#e8f5e9'; btn.style.borderColor = '#4caf50';
+    setTimeout(() => {
+      closePopup();
+      showGamePopup('🧂', '달팽이에게 소금은 정말 치명적이에요.\n아주 조금의 소금도 위험해요.', [{ label:'확인', action:'closePopup' }]);
+    }, 600);
+  } else {
+    btn.style.background = '#ffebee'; btn.style.borderColor = '#ef5350';
+    if (hint === 'eggshell') {
+      showToast('💡 달걀껍데기는 칼슘제 대신 줄 수 있어요!', '#f3e5f5', '#6a1b9a');
+      setTimeout(() => {
+        hideToast();
+        btns.forEach(b => { b.style.pointerEvents = ''; b.style.background = '#f1f8e9'; b.style.borderColor = '#c5e1a5'; });
+      }, 2000);
+    } else {
+      setTimeout(() => {
+        btns.forEach(b => { b.style.pointerEvents = ''; b.style.background = '#f1f8e9'; b.style.borderColor = '#c5e1a5'; });
+      }, 800);
+    }
+  }
+}
+
 function showStunEffect(snail) {
-  const container = document.getElementById('terrarium-wrap');
   const r = snail.getBoundingClientRect();
   const cr = container.getBoundingClientRect();
   const cx = r.left - cr.left + r.width * 0.3;
@@ -1038,6 +1363,14 @@ function resetGame() {
   if (dryDeathTimer) { clearInterval(dryDeathTimer); dryDeathTimer = null; }
   snailInHide = false; hideRoutineRunning = false;
   snailMode = 'ground'; wallModeActive = false;
+  currentFood = null; foodOnStage = false; calciumOnFood = false;
+  feedCount = 0; quizShown = false; actionCount = 0;
+  growth1Done = false; growth2Done = false; snailSizeW = 11;
+  if (foodStageInterval) { clearInterval(foodStageInterval); foodStageInterval = null; }
+  const foodImg = document.getElementById('food-img');
+  if (foodImg) foodImg.style.display = 'none';
+  const cpImg = document.getElementById('calcium-powder-img');
+  if (cpImg) cpImg.style.display = 'none';
   gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
 
   // 달팽이 숨김
@@ -1166,6 +1499,8 @@ function initSnailSprayDrag(staticEl) {
         setTimeout(() => { bag.style.display = 'none'; staticEl.style.opacity = '1'; }, 360);
       } else {
         applySpray(bag, staticEl, cr);
+        actionCount++;
+        if (typeof checkGrowth === 'function') checkGrowth();
       }
     } else {
       const sr = staticEl.getBoundingClientRect();
@@ -1332,8 +1667,14 @@ function startSnailMovement() {
   }
 
   function pickGroundTarget() {
-    tx = GROUND.left + Math.random() * (GROUND.right  - GROUND.left  - SNAIL_W);
-    ty = GROUND.top  + Math.random() * (GROUND.bottom - GROUND.top   - SNAIL_H);
+    // 먹이가 있으면 높은 확률로 먹이 위로 이동
+    if (foodOnStage && Math.random() < 0.6) {
+      tx = 8 + Math.random() * 22;   // 먹이 위치 (left:12% 근처)
+      ty = 55 + Math.random() * 8;
+    } else {
+      tx = GROUND.left + Math.random() * (GROUND.right  - GROUND.left  - SNAIL_W);
+      ty = GROUND.top  + Math.random() * (GROUND.bottom - GROUND.top   - SNAIL_H);
+    }
     isResting = Math.random() < 0.25;
     restTimer = isResting ? (2000 + Math.random() * 3000) : 0;
   }
