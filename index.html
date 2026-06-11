@@ -1150,8 +1150,8 @@ function advanceFoodStage() {
 // 단계 변할 때마다 배고픔 +5%
 gameState.hunger = Math.min(100, gameState.hunger + 5);
 
-// 단계 변할 때마다 행복 +5%
-gameState.happiness = Math.min(100, gameState.happiness + 5);
+// 단계 변할 때마다 행복 +3%
+gameState.happiness = Math.min(100, gameState.happiness + 3);
 
 // 칼슘제가 있었으면 추가 +3%
 if (calciumOnFood) {
