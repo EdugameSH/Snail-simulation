@@ -385,6 +385,8 @@ body {
         <img id="calcium-powder-img" src="images/칼슘제가루.png" alt="칼슘가루" style="position:absolute;display:none;
           bottom:30%;left:18%;width:22%;max-width:95px;height:auto;z-index:8;opacity:0.85;
           filter:drop-shadow(0 1px 3px rgba(0,0,0,0.15));">
+        <!-- 똥 SVG 캔버스 -->
+        <svg id="poop-svg" style="position:absolute;inset:0;width:100%;height:100%;z-index:7;pointer-events:none;overflow:visible;"></svg>
         <!-- 달팽이 -->
         <img id="snail-img" src="images/기본달팽이1.png" alt="달팽이" draggable="false"
           style="position:absolute; display:none; z-index:9;
@@ -482,14 +484,24 @@ let foodOnStage = false;
 let calciumOnFood = false;
 let feedCount = 0;
 let quizShown = false;
-let snailOnFoodTimer = 0;   // 달팽이가 먹이 위에 있던 누적 시간(ms)
+let snailOnFoodTimer = 0;
 let foodStageInterval = null;
+let lastFoodType = null;   // 마지막 먹은 먹이 색상용
+
+// 똥 관련
+let poopCount = 0;
+let poopActive = false;
+let poopPath = [];
+let poopTimer = 0;
+const POOP_DURATION = 3000;
+let poopSegments = [];       // [{points:[{px,py},...], color}]
+let needsCleaning = false;
 
 // 성장 관련
-let actionCount = 0;   // 분무기+먹이 합산
+let actionCount = 0;
 let growth1Done = false;
 let growth2Done = false;
-let snailSizeW = 11;   // 현재 달팽이 크기 (%)
+let snailSizeW = 11;
 
 function startGame() {
   document.getElementById('title-screen').style.display = 'none';
@@ -872,6 +884,10 @@ function startSnailLife() {
         border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#f57f17;line-height:1.5;margin-top:3px;">
         🌶 맵거나 향이 강한 먹이는<br>달팽이에게 위험해요.
       </div>
+      <div id="warn-coco-early" style="display:none;background:#fff3e0;border-left:3px solid #ff9800;
+        border-radius:0 8px 8px 0;padding:5px 8px;font-size:11px;color:#e65100;line-height:1.5;margin-top:3px;">
+        🌱 코코피트를 너무 자주 교체하는 것도<br>좋지 않아요. 좀 더 기다려 주세요.
+      </div>
     </div>
 
     <!-- 분무기 -->
@@ -879,6 +895,14 @@ function startSnailLife() {
       <div style="font-family:'Jua',sans-serif;font-size:11px;color:#555;margin-bottom:4px;">💦 분무기</div>
       <img id="snail-spray-static" src="images/분무기.png" alt="분무기" draggable="false"
         style="width:48px;height:auto;cursor:grab;display:inline-block;margin-right:8px;vertical-align:middle;
+               filter:drop-shadow(0 3px 6px rgba(0,0,0,0.2));user-select:none;touch-action:none;">
+    </div>
+
+    <!-- 코코피트 봉투 -->
+    <div style="margin-bottom:8px;">
+      <div style="font-family:'Jua',sans-serif;font-size:11px;color:#555;margin-bottom:4px;">🌱 코코피트 교체</div>
+      <img id="snail-coco-static" src="images/코코피트봉투.png" alt="코코피트" draggable="false"
+        style="width:48px;height:auto;cursor:grab;display:inline-block;
                filter:drop-shadow(0 3px 6px rgba(0,0,0,0.2));user-select:none;touch-action:none;">
     </div>
 
@@ -919,6 +943,11 @@ function startSnailLife() {
   currentFood = null; foodOnStage = false; calciumOnFood = false;
   feedCount = 0; quizShown = false; actionCount = 0;
   growth1Done = false; growth2Done = false; snailSizeW = 11;
+  lastFoodType = null; poopCount = 0; poopActive = false;
+  poopPath = []; poopSegments = []; needsCleaning = false;
+  // SVG 초기화
+  const svg = document.getElementById('poop-svg');
+  if (svg) svg.innerHTML = '';
 
   requestAnimationFrame(() => {
     const sprayEl = document.getElementById('snail-spray-static');
@@ -926,6 +955,8 @@ function startSnailLife() {
     initFoodDrag('food-lettuce-btn', 'lettuce');
     initFoodDrag('food-carrot-btn', 'carrot');
     initFoodDrag('food-calcium-btn', 'calcium');
+    const cocoEl = document.getElementById('snail-coco-static');
+    if (cocoEl) initCocoDragSnail(cocoEl);
   });
 
   startStatDrain();
@@ -1147,17 +1178,14 @@ function advanceFoodStage() {
   if (!currentFood || !foodOnStage) return;
   const { type } = currentFood;
 
-// 단계 변할 때마다 배고픔 +5%
-gameState.hunger = Math.min(100, gameState.hunger + 5);
-
-// 단계 변할 때마다 행복 +3%
-gameState.happiness = Math.min(100, gameState.happiness + 3);
-
-// 칼슘제가 있었으면 추가 +3%
-if (calciumOnFood) {
-  gameState.hunger = Math.min(100, gameState.hunger + 3);
-}
-updateSnailStatsUI();
+  // 단계 변할 때마다 배고픔 +5%, 행복 +3%
+  gameState.hunger    = Math.min(100, gameState.hunger    + 5);
+  gameState.happiness = Math.min(100, gameState.happiness + 3);
+  // 칼슘제가 있었으면 추가 +3%
+  if (calciumOnFood) {
+    gameState.hunger = Math.min(100, gameState.hunger + 3);
+  }
+  updateSnailStatsUI();
 
   currentFood.stage++;
 
@@ -1175,11 +1203,19 @@ updateSnailStatsUI();
   const nextSrc = stageList[currentFood.stage];
 
   if (!nextSrc || currentFood.stage >= stageList.length - 1) {
-    // 다 먹음
+    // 다 먹음 → 나중에 똥 트리거
+    lastFoodType = type;
     foodImg.style.display = 'none';
     foodOnStage = false;
     currentFood = null;
     if (foodStageInterval) { clearInterval(foodStageInterval); foodStageInterval = null; }
+    // 10~20초 후 똥 이벤트
+    const poopDelay = 10000 + Math.random() * 10000;
+    setTimeout(() => {
+      if (!snailDead && !poopActive && snailMode === 'ground' && !snailInHide) {
+        startPoop();
+      }
+    }, poopDelay);
   } else {
     foodImg.src = nextSrc;
   }
@@ -1290,22 +1326,186 @@ function answerFoodQuiz(btn, isCorrect, hint) {
   }
 }
 
-function showStunEffect(snail) {
-  const container = document.body;
+// ===== 똥 시스템 =====
+function startPoop() {
+  if (poopActive || snailDead) return;
+  poopActive = true;
+  poopPath = [];
+  poopTimer = 0;
 
+  const color = lastFoodType === 'carrot' ? '#e67e22' : '#5d8a3c';
+}
+
+function recordPoopPoint(x, y) {
+  if (!poopActive) return;
+  poopPath.push({ x, y });
+}
+
+function tickPoop(dt) {
+  if (!poopActive) return;
+  poopTimer += dt;
+  if (poopTimer >= POOP_DURATION) {
+    finishPoop();
+  }
+}
+
+function finishPoop() {
+  if (!poopActive || poopPath.length < 2) { poopActive = false; return; }
+  poopActive = false;
+
+  const color = lastFoodType === 'carrot' ? '#c0620a' : '#4a7a28';
+  poopSegments.push({ points: [...poopPath], color });
+  poopCount++;
+  poopPath = [];
+
+  renderAllPoop();
+
+  if (poopCount >= 7 && !needsCleaning) {
+    needsCleaning = true;
+    showCleaningPrompt();
+  }
+}
+
+function renderAllPoop() {
+  const wrap = document.getElementById('terrarium-wrap');
+  if (!wrap) return;
+  const svg = document.getElementById('poop-svg');
+  if (!svg) return;
+
+  // 기존 똥 유지하고 새 세그먼트 추가
+  svg.innerHTML = poopSegments.map(seg => {
+    if (seg.points.length < 2) return '';
+    const d = seg.points.map((p, i) =>
+      `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)}% ${p.y.toFixed(1)}%`
+    ).join(' ');
+    return `<path d="${d}" stroke="${seg.color}" stroke-width="2.5"
+      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>`;
+  }).join('');
+
+  // SVG path를 % 단위로 쓰려면 viewBox 필요 — 대신 px 변환
+  // terrarium-wrap 크기 기준으로 재계산
+  const rect = wrap.getBoundingClientRect();
+  if (!rect.width) return;
+
+  svg.innerHTML = poopSegments.map(seg => {
+    if (seg.points.length < 2) return '';
+    const pts = seg.points.map(p => ({
+      px: (p.x / 100) * rect.width,
+      py: rect.height - (p.y / 100) * rect.height  // bottom 기준 → top 기준 변환
+    }));
+    const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.px.toFixed(1)} ${p.py.toFixed(1)}`).join(' ');
+    return `<path d="${d}" stroke="${seg.color}" stroke-width="3"
+      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>`;
+  }).join('');
+}
+
+function showCleaningPrompt() {
+  let popup = document.getElementById('cleaning-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'cleaning-popup';
+    document.getElementById('play-area').appendChild(popup);
+  }
+  popup.style.cssText = `
+    position:absolute; top:50%; left:50%;
+    transform: translate(-50%,-50%);
+    background:rgba(255,255,255,0.97);
+    border-radius:18px; padding:20px 22px;
+    text-align:center; z-index:50;
+    box-shadow:0 6px 30px rgba(0,0,0,0.2);
+    animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+    max-width:280px;
+  `;
+  popup.innerHTML = `
+    <div style="font-size:32px;margin-bottom:8px;">🌱</div>
+    <div style="font-family:'Jua',sans-serif;font-size:14px;color:#2e7d32;line-height:1.7;">
+      코코피트를 주기적으로<br>교체해주어야 해요!<br>
+      <span style="font-size:12px;color:#555;">사이드 패널의 코코피트 봉투를<br>드래그해서 청소해봐요!</span>
+    </div>
+    <button onclick="document.getElementById('cleaning-popup').style.display='none';"
+      style="margin-top:12px;background:#4caf50;color:white;border:none;
+             padding:8px 20px;border-radius:10px;font-family:'Jua',sans-serif;
+             font-size:14px;cursor:pointer;">확인</button>
+  `;
+}
+
+// 코코피트 드래그 (달팽이 단계)
+function initCocoDragSnail(staticEl) {
+  let dragging = false, ox, oy;
+  let dragEl = null;
+  function getPos(e) { return e.touches ? {x:e.touches[0].clientX,y:e.touches[0].clientY} : {x:e.clientX,y:e.clientY}; }
+
+  function onStart(e) {
+    // 7번 미만이면 막기
+    if (!needsCleaning) {
+      const warn = document.getElementById('warn-coco-early');
+      if (warn) { warn.style.display = 'block'; setTimeout(() => { warn.style.display = 'none'; }, 3000); }
+      return;
+    }
+    e.preventDefault(); dragging = true;
+    const p = getPos(e), sr = staticEl.getBoundingClientRect();
+    ox = p.x - sr.left; oy = p.y - sr.top;
+    dragEl = document.createElement('img');
+    dragEl.src = staticEl.src;
+    dragEl.style.cssText = `position:absolute;width:60px;height:auto;z-index:60;pointer-events:none;
+      filter:drop-shadow(0 4px 8px rgba(0,0,0,0.3));`;
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    dragEl.style.left = (sr.left - cr.left) + 'px';
+    dragEl.style.top  = (sr.top  - cr.top)  + 'px';
+    document.getElementById('game-container').appendChild(dragEl);
+  }
+  function onMove(e) {
+    if (!dragging || !dragEl) return; e.preventDefault();
+    const p = getPos(e), cr = document.getElementById('game-container').getBoundingClientRect();
+    dragEl.style.left = (p.x - cr.left - ox) + 'px';
+    dragEl.style.top  = (p.y - cr.top  - oy) + 'px';
+  }
+  function onEnd() {
+    if (!dragging || !dragEl) return; dragging = false;
+    const er = dragEl.getBoundingClientRect();
+    const cr = document.getElementById('game-container').getBoundingClientRect();
+    const playW = cr.width - 270;
+    const elCX = er.left + er.width/2 - cr.left;
+    dragEl.remove(); dragEl = null;
+    if (elCX < playW) {
+      cleanTerrarium();
+    }
+  }
+  staticEl.addEventListener('mousedown', onStart);
+  staticEl.addEventListener('touchstart', onStart, {passive:false});
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, {passive:false});
+  document.addEventListener('mouseup', onEnd);
+  document.addEventListener('touchend', onEnd);
+}
+
+function cleanTerrarium() {
+  // 똥 전부 제거
+  poopSegments = [];
+  poopCount = 0;
+  needsCleaning = false;
+  const svg = document.getElementById('poop-svg');
+  if (svg) svg.innerHTML = '';
+  // 클리닝 팝업 닫기
+  const cp = document.getElementById('cleaning-popup');
+  if (cp) cp.style.display = 'none';
+  showToast('✨ 사육상자가 깨끗해졌어요!', '#e8f5e9', '#2e7d32');
+  setTimeout(hideToast, 2000);
+}
+
+function showStunEffect(snail) {
+  const container = document.getElementById('terrarium-wrap');
+  if (!container) return;
   const r = snail.getBoundingClientRect();
   const cr = container.getBoundingClientRect();
-
   const cx = r.left - cr.left + r.width * 0.3;
-  const cy = r.top - cr.top - 8;
-
+  const cy = r.top  - cr.top  - 8;
   ['⭐','💫','✨'].forEach((s, i) => {
     const el = document.createElement('div');
     el.textContent = s;
     el.style.cssText = `position:absolute;font-size:14px;pointer-events:none;z-index:20;
-      left:${cx + (i - 1) * 16}px;top:${cy}px;
-      animation:stunStar 1s ease-out ${i * 120}ms forwards;`;
-
+      left:${cx+(i-1)*16}px;top:${cy}px;
+      animation:stunStar 1s ease-out ${i*120}ms forwards;`;
     container.appendChild(el);
     setTimeout(() => el.remove(), 1400);
   });
@@ -1395,11 +1595,10 @@ function resetGame() {
   currentFood = null; foodOnStage = false; calciumOnFood = false;
   feedCount = 0; quizShown = false; actionCount = 0;
   growth1Done = false; growth2Done = false; snailSizeW = 11;
-  if (foodStageInterval) { clearInterval(foodStageInterval); foodStageInterval = null; }
-  const foodImg = document.getElementById('food-img');
-  if (foodImg) foodImg.style.display = 'none';
-  const cpImg = document.getElementById('calcium-powder-img');
-  if (cpImg) cpImg.style.display = 'none';
+  lastFoodType = null; poopCount = 0; poopActive = false;
+  poopPath = []; poopSegments = []; needsCleaning = false;
+  const svgR = document.getElementById('poop-svg');
+  if (svgR) svgR.innerHTML = '';
   gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
 
   // 달팽이 숨김
@@ -1773,6 +1972,11 @@ function startSnailMovement() {
         if (frameTimer > 600) {
           frameTimer = 0; frameIdx = 1 - frameIdx;
           setGroundImg(frameIdx);
+        }
+        // 똥 경로 기록 (꼬리 쪽 = 달팽이 이동 반대쪽)
+        if (poopActive) {
+          recordPoopPoint(x, y);
+          tickPoop(dt);
         }
       }
 
