@@ -1287,16 +1287,21 @@ function answerFoodQuiz(btn, isCorrect, hint) {
 }
 
 function showStunEffect(snail) {
+  const container = document.body;
+
   const r = snail.getBoundingClientRect();
   const cr = container.getBoundingClientRect();
+
   const cx = r.left - cr.left + r.width * 0.3;
-  const cy = r.top  - cr.top  - 8;
+  const cy = r.top - cr.top - 8;
+
   ['⭐','💫','✨'].forEach((s, i) => {
     const el = document.createElement('div');
     el.textContent = s;
     el.style.cssText = `position:absolute;font-size:14px;pointer-events:none;z-index:20;
-      left:${cx+(i-1)*16}px;top:${cy}px;
-      animation:stunStar 1s ease-out ${i*120}ms forwards;`;
+      left:${cx + (i - 1) * 16}px;top:${cy}px;
+      animation:stunStar 1s ease-out ${i * 120}ms forwards;`;
+
     container.appendChild(el);
     setTimeout(() => el.remove(), 1400);
   });
