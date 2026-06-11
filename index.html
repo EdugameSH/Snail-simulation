@@ -986,19 +986,23 @@ function stunSnail(e) {
   if (snailStunTimeout) clearTimeout(snailStunTimeout);
   snailStunTimeout = setTimeout(() => {
     if (!snailDead) {
-      // 스턴 6회 → 사망
       if (stunCount >= 6) {
         killSnail('stun');
         return;
       }
+      // 기존 RAF 완전 중단
+      if (snailAnimTimer) { cancelAnimationFrame(snailAnimTimer); snailAnimTimer = null; }
       snailStunned = false;
-      snail.src = IMGS.snail1;
-      snail.style.width = snailSizeW + '%';
-      snail.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
-      snail.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+      const snailEl = document.getElementById('snail-img');
+      if (snailEl) {
+        snailEl.src = IMGS.snail1;
+        snailEl.style.width = snailSizeW + '%';
+        snailEl.style.maxWidth = Math.round(snailSizeW * 4.5) + 'px';
+        snailEl.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))';
+      }
       if (gameState.happiness <= 50 && !snailInHide) {
         hideRoutineRunning = true;
-        goToHide(snail, () => enterHide(snail));
+        goToHide(snailEl, () => enterHide(snailEl));
       } else {
         startSnailMovement();
       }
@@ -1716,7 +1720,9 @@ function startSnailMovement() {
     lastTime = ts;
 
     if (snailDead) return;
-    if (snailStunned) { snailAnimTimer = requestAnimationFrame(tick); return; }
+
+    // 스턴 중엔 RAF 중단 (stunSnail 해제 시 startSnailMovement 재호출)
+    if (snailStunned) return;
 
     // 행복도 50% 이하 → 은신처
     if (gameState.happiness <= 50 && !snailInHide && !hideRoutineRunning) {
