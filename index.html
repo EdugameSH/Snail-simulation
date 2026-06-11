@@ -1147,13 +1147,17 @@ function advanceFoodStage() {
   if (!currentFood || !foodOnStage) return;
   const { type } = currentFood;
 
-  // 단계 변할 때마다 배고픔 +5%
-  gameState.hunger = Math.min(100, gameState.hunger + 5);
-  // 칼슘제가 있었으면 추가 +3%
-  if (calciumOnFood) {
-    gameState.hunger = Math.min(100, gameState.hunger + 3);
-  }
-  updateSnailStatsUI();
+// 단계 변할 때마다 배고픔 +5%
+gameState.hunger = Math.min(100, gameState.hunger + 5);
+
+// 단계 변할 때마다 행복 +5%
+gameState.happiness = Math.min(100, gameState.happiness + 5);
+
+// 칼슘제가 있었으면 추가 +3%
+if (calciumOnFood) {
+  gameState.hunger = Math.min(100, gameState.hunger + 3);
+}
+updateSnailStatsUI();
 
   currentFood.stage++;
 
