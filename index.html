@@ -1332,13 +1332,23 @@ function startPoop() {
   poopActive = true;
   poopPath = [];
   poopTimer = 0;
-
-  const color = lastFoodType === 'carrot' ? '#e67e22' : '#5d8a3c';
 }
 
-function recordPoopPoint(x, y) {
+function recordPoopPoint(snailX, snailY, facingLeft) {
   if (!poopActive) return;
-  poopPath.push({ x, y });
+  // 꼬리 위치 = 달팽이 중심에서 진행 방향 반대쪽
+  // facingLeft=true(scaleX(1)) → 머리가 왼쪽 → 꼬리는 오른쪽 (+offset)
+  const tailOffsetX = facingLeft ? 4 : -4;  // % 단위
+  const tailX = snailX + tailOffsetX;
+  const tailY = snailY + 3;  // 살짝 아래 (꼬리)
+
+  // 너무 가까운 점은 건너뜀 (최소 0.5% 이상 이동 시 추가)
+  if (poopPath.length > 0) {
+    const last = poopPath[poopPath.length - 1];
+    const d = Math.sqrt((tailX-last.x)**2 + (tailY-last.y)**2);
+    if (d < 0.5) return;
+  }
+  poopPath.push({ x: tailX, y: tailY });
 }
 
 function tickPoop(dt) {
@@ -1350,8 +1360,9 @@ function tickPoop(dt) {
 }
 
 function finishPoop() {
-  if (!poopActive || poopPath.length < 2) { poopActive = false; return; }
+  if (!poopActive) { return; }
   poopActive = false;
+  if (poopPath.length < 3) { poopPath = []; return; }
 
   const color = lastFoodType === 'carrot' ? '#c0620a' : '#4a7a28';
   poopSegments.push({ points: [...poopPath], color });
@@ -1368,34 +1379,39 @@ function finishPoop() {
 
 function renderAllPoop() {
   const wrap = document.getElementById('terrarium-wrap');
-  if (!wrap) return;
-  const svg = document.getElementById('poop-svg');
-  if (!svg) return;
+  const svg  = document.getElementById('poop-svg');
+  if (!wrap || !svg) return;
 
-  // 기존 똥 유지하고 새 세그먼트 추가
-  svg.innerHTML = poopSegments.map(seg => {
-    if (seg.points.length < 2) return '';
-    const d = seg.points.map((p, i) =>
-      `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)}% ${p.y.toFixed(1)}%`
-    ).join(' ');
-    return `<path d="${d}" stroke="${seg.color}" stroke-width="2.5"
-      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>`;
-  }).join('');
+  const W = wrap.offsetWidth;
+  const H = wrap.offsetHeight;
+  if (!W || !H) return;
 
-  // SVG path를 % 단위로 쓰려면 viewBox 필요 — 대신 px 변환
-  // terrarium-wrap 크기 기준으로 재계산
-  const rect = wrap.getBoundingClientRect();
-  if (!rect.width) return;
+  // viewBox를 wrap 실제 픽셀 크기로 설정 → % → px 변환 없이 직접 사용
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
 
   svg.innerHTML = poopSegments.map(seg => {
     if (seg.points.length < 2) return '';
+    // % 좌표 → px 변환
+    // y는 bottom 기준이므로 H - (y/100 * H)
     const pts = seg.points.map(p => ({
-      px: (p.x / 100) * rect.width,
-      py: rect.height - (p.y / 100) * rect.height  // bottom 기준 → top 기준 변환
+      px: (p.x / 100) * W,
+      py: H - (p.y / 100) * H
     }));
-    const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.px.toFixed(1)} ${p.py.toFixed(1)}`).join(' ');
-    return `<path d="${d}" stroke="${seg.color}" stroke-width="3"
-      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>`;
+
+    // catmull-rom 스플라인으로 부드럽게
+    let d = `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)}`;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const cp1x = pts[i-1].px + (pts[i].px - pts[i-1].px) * 0.5;
+      const cp1y = pts[i-1].py + (pts[i].py - pts[i-1].py) * 0.5;
+      const cp2x = pts[i].px   - (pts[i+1].px - pts[i-1].px) * 0.15;
+      const cp2y = pts[i].py   - (pts[i+1].py - pts[i-1].py) * 0.15;
+      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${pts[i].px.toFixed(1)} ${pts[i].py.toFixed(1)}`;
+    }
+    d += ` L ${pts[pts.length-1].px.toFixed(1)} ${pts[pts.length-1].py.toFixed(1)}`;
+
+    return `<path d="${d}" stroke="${seg.color}" stroke-width="3.5"
+      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.9"/>`;
   }).join('');
 }
 
@@ -1973,9 +1989,10 @@ function startSnailMovement() {
           frameTimer = 0; frameIdx = 1 - frameIdx;
           setGroundImg(frameIdx);
         }
-        // 똥 경로 기록 (꼬리 쪽 = 달팽이 이동 반대쪽)
+        // 똥 경로 기록 - 현재 실제 위치와 방향으로
         if (poopActive) {
-          recordPoopPoint(x, y);
+          const facingLeftNow = snail.style.transform === 'scaleX(1)';
+          recordPoopPoint(x, y, facingLeftNow);
           tickPoop(dt);
         }
       }
