@@ -386,7 +386,7 @@ body {
           bottom:30%;left:18%;width:22%;max-width:95px;height:auto;z-index:8;opacity:0.85;
           filter:drop-shadow(0 1px 3px rgba(0,0,0,0.15));">
         <!-- 똥 SVG 캔버스 -->
-        <svg id="poop-svg" style="position:absolute;inset:0;width:100%;height:100%;z-index:7;pointer-events:none;overflow:visible;"></svg>
+        <svg id="poop-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:7;pointer-events:none;overflow:visible;"></svg>
         <!-- 달팽이 -->
         <img id="snail-img" src="images/기본달팽이1.png" alt="달팽이" draggable="false"
           style="position:absolute; display:none; z-index:9;
@@ -1209,8 +1209,8 @@ function advanceFoodStage() {
     foodOnStage = false;
     currentFood = null;
     if (foodStageInterval) { clearInterval(foodStageInterval); foodStageInterval = null; }
-    // 10~20초 후 똥 이벤트
-    const poopDelay = 10000 + Math.random() * 10000;
+    // 3~7초 후 똥 이벤트
+    const poopDelay = 3000 + Math.random() * 4000;
     setTimeout(() => {
       if (!snailDead && !poopActive && snailMode === 'ground' && !snailInHide) {
         startPoop();
@@ -1336,17 +1336,15 @@ function startPoop() {
 
 function recordPoopPoint(snailX, snailY, facingLeft) {
   if (!poopActive) return;
-  // 꼬리 위치 = 달팽이 중심에서 진행 방향 반대쪽
-  // facingLeft=true(scaleX(1)) → 머리가 왼쪽 → 꼬리는 오른쪽 (+offset)
-  const tailOffsetX = facingLeft ? 4 : -4;  // % 단위
-  const tailX = snailX + tailOffsetX;
-  const tailY = snailY + 3;  // 살짝 아래 (꼬리)
+  // 꼬리 위치 = 머리 반대방향
+  const tailOffsetX = facingLeft ? 4 : -4;
+  const tailX = Math.max(5, Math.min(75, snailX + tailOffsetX));
+  const tailY = Math.max(50, Math.min(73, snailY + 2));
 
-  // 너무 가까운 점은 건너뜀 (최소 0.5% 이상 이동 시 추가)
   if (poopPath.length > 0) {
     const last = poopPath[poopPath.length - 1];
-    const d = Math.sqrt((tailX-last.x)**2 + (tailY-last.y)**2);
-    if (d < 0.5) return;
+    const d = Math.sqrt((tailX - last.x) ** 2 + (tailY - last.y) ** 2);
+    if (d < 0.4) return;  // 너무 가까우면 스킵
   }
   poopPath.push({ x: tailX, y: tailY });
 }
@@ -1360,21 +1358,21 @@ function tickPoop(dt) {
 }
 
 function finishPoop() {
-  if (!poopActive) { return; }
+  if (!poopActive) return;
   poopActive = false;
-  if (poopPath.length < 3) { poopPath = []; return; }
 
-  const color = lastFoodType === 'carrot' ? '#c0620a' : '#4a7a28';
-  poopSegments.push({ points: [...poopPath], color });
-  poopCount++;
-  poopPath = [];
+  if (poopPath.length >= 2) {
+    const color = lastFoodType === 'carrot' ? '#b85c10' : '#3d7a20';
+    poopSegments.push({ points: [...poopPath], color });
+    poopCount++;
+    renderAllPoop();
 
-  renderAllPoop();
-
-  if (poopCount >= 7 && !needsCleaning) {
-    needsCleaning = true;
-    showCleaningPrompt();
+    if (poopCount >= 7 && !needsCleaning) {
+      needsCleaning = true;
+      setTimeout(() => showCleaningPrompt(), 500);
+    }
   }
+  poopPath = [];
 }
 
 function renderAllPoop() {
@@ -1382,36 +1380,45 @@ function renderAllPoop() {
   const svg  = document.getElementById('poop-svg');
   if (!wrap || !svg) return;
 
-  const W = wrap.offsetWidth;
-  const H = wrap.offsetHeight;
+  // offsetWidth/Height로 실제 렌더 크기 사용
+  const W = wrap.offsetWidth  || wrap.clientWidth;
+  const H = wrap.offsetHeight || wrap.clientHeight;
   if (!W || !H) return;
 
-  // viewBox를 wrap 실제 픽셀 크기로 설정 → % → px 변환 없이 직접 사용
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('width',  W);
+  svg.setAttribute('height', H);
+  svg.style.width  = W + 'px';
+  svg.style.height = H + 'px';
 
   svg.innerHTML = poopSegments.map(seg => {
     if (seg.points.length < 2) return '';
-    // % 좌표 → px 변환
-    // y는 bottom 기준이므로 H - (y/100 * H)
+
     const pts = seg.points.map(p => ({
       px: (p.x / 100) * W,
-      py: H - (p.y / 100) * H
+      py: H - (p.y / 100) * H   // bottom % → top px
     }));
 
-    // catmull-rom 스플라인으로 부드럽게
-    let d = `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)}`;
-    for (let i = 1; i < pts.length - 1; i++) {
-      const cp1x = pts[i-1].px + (pts[i].px - pts[i-1].px) * 0.5;
-      const cp1y = pts[i-1].py + (pts[i].py - pts[i-1].py) * 0.5;
-      const cp2x = pts[i].px   - (pts[i+1].px - pts[i-1].px) * 0.15;
-      const cp2y = pts[i].py   - (pts[i+1].py - pts[i-1].py) * 0.15;
-      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${pts[i].px.toFixed(1)} ${pts[i].py.toFixed(1)}`;
+    // 곡선: 3점 이상이면 bezier, 아니면 선
+    let d;
+    if (pts.length === 2) {
+      d = `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)} L ${pts[1].px.toFixed(1)} ${pts[1].py.toFixed(1)}`;
+    } else {
+      d = `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)}`;
+      for (let i = 1; i < pts.length; i++) {
+        const prev  = pts[Math.max(0, i - 1)];
+        const curr  = pts[i];
+        const next  = pts[Math.min(pts.length - 1, i + 1)];
+        const cp1x  = prev.px + (curr.px - (pts[Math.max(0,i-2)] || prev).px) * 0.2;
+        const cp1y  = prev.py + (curr.py - (pts[Math.max(0,i-2)] || prev).py) * 0.2;
+        const cp2x  = curr.px - (next.px - prev.px) * 0.2;
+        const cp2y  = curr.py - (next.py - prev.py) * 0.2;
+        d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${curr.px.toFixed(1)} ${curr.py.toFixed(1)}`;
+      }
     }
-    d += ` L ${pts[pts.length-1].px.toFixed(1)} ${pts[pts.length-1].py.toFixed(1)}`;
 
-    return `<path d="${d}" stroke="${seg.color}" stroke-width="3.5"
-      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.9"/>`;
+    return `<path d="${d}" stroke="${seg.color}" stroke-width="4"
+      stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.88"/>`;
   }).join('');
 }
 
