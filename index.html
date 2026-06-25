@@ -1361,12 +1361,11 @@ function recordPoopPoint(snailX, snailY, moveDx, moveDy) {
   const snailEl = document.getElementById('snail-img');
   const flipped = snailEl && snailEl.style.transform.includes('scaleX(-1)');
   const tailOffsetX = flipped ? -(snailSizeW * 0.45) : (snailSizeW * 0.45);
-  const tailOffsetY = snailSizeW * 0.2;
+  const tailOffsetY = snailSizeW * 0.5;  // 더 아래로
 
   const tailX = snailX + tailOffsetX;
   const tailY = snailY + tailOffsetY;
 
-  // 간격 체크
   if (poopPath.length > 0) {
     const last = poopPath[poopPath.length - 1];
     const dist = Math.hypot(tailX - last.x, tailY - last.y);
@@ -1391,6 +1390,14 @@ function finishPoop() {
   if (poopPath.length >= 2) {
     poopSegments.push({ points: [...poopPath], color: poopColor });
     poopCount++;
+
+    // 첫 번째 똥일 때 안내 팝업
+    if (poopCount === 1) {
+      setTimeout(() => {
+        showGamePopup('💩', '달팽이는 먹은 음식의 색깔에 따라\n똥 색깔이 달라져요.', [{ label:'확인', action:'closePopup' }]);
+      }, 500);
+    }
+
     if (poopCount >= 7 && !needsCleaning) {
       needsCleaning = true;
       setTimeout(() => showCleaningPrompt(), 500);
