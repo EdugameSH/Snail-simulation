@@ -385,8 +385,8 @@ body {
         <img id="calcium-powder-img" src="images/칼슘제가루.png" alt="칼슘가루" style="position:absolute;display:none;
           bottom:30%;left:18%;width:22%;max-width:95px;height:auto;z-index:8;opacity:0.85;
           filter:drop-shadow(0 1px 3px rgba(0,0,0,0.15));">
-        <!-- 똥 SVG 캔버스 -->
-        <svg id="poop-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:7;pointer-events:none;overflow:visible;"></svg>
+        <!-- 똥 레이어 -->
+        <div id="poop-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:7;pointer-events:none;"></div>
         <!-- 달팽이 -->
         <img id="snail-img" src="images/기본달팽이1.png" alt="달팽이" draggable="false"
           style="position:absolute; display:none; z-index:9;
@@ -945,9 +945,9 @@ function startSnailLife() {
   growth1Done = false; growth2Done = false; snailSizeW = 11;
   lastFoodType = null; poopCount = 0; poopActive = false;
   poopPath = []; poopSegments = []; needsCleaning = false;
-  // SVG 초기화
-  const svg = document.getElementById('poop-svg');
-  if (svg) svg.innerHTML = '';
+  // SVG/poop-layer 초기화
+  const poopLayer = document.getElementById('poop-layer');
+  if (poopLayer) poopLayer.innerHTML = '';
 
   requestAnimationFrame(() => {
     const sprayEl = document.getElementById('snail-spray-static');
@@ -1209,8 +1209,8 @@ function advanceFoodStage() {
     foodOnStage = false;
     currentFood = null;
     if (foodStageInterval) { clearInterval(foodStageInterval); foodStageInterval = null; }
-    // 3~7초 후 똥 이벤트
-    const poopDelay = 3000 + Math.random() * 4000;
+    // 1초 후 똥 이벤트
+    const poopDelay = 1000;
     setTimeout(() => {
       if (!snailDead && !poopActive && snailMode === 'ground' && !snailInHide) {
         startPoop();
@@ -1327,78 +1327,54 @@ function answerFoodQuiz(btn, isCorrect, hint) {
 }
 
 // ===== 똥 시스템 =====
+let poopColor = '#3d7a20';
+
 function startPoop() {
   if (poopActive || snailDead) return;
   poopActive = true;
   poopPath = [];
   poopTimer = 0;
+  poopColor = lastFoodType === 'carrot' ? '#b85c10' : '#3d7a20';
+}
+
+function createPoopDot(x, y, color) {
+  const layer = document.getElementById('poop-layer');
+  if (!layer) return;
+  const dot = document.createElement('div');
+  dot.className = 'poop-dot';
+  dot.style.cssText = `
+    position:absolute;
+    left:${x}%;
+    top:${y}%;
+    width:4px; height:4px;
+    border-radius:50%;
+    background:${color};
+    transform:translate(-50%,-50%);
+    pointer-events:none;
+  `;
+  layer.appendChild(dot);
 }
 
 function recordPoopPoint(snailX, snailY, moveDx, moveDy) {
   if (!poopActive) return;
 
-  // 이동 방향 반대쪽이 꼬리
-  const len = Math.hypot(moveDx, moveDy) || 1;
-  const tailX = snailX - (moveDx / len) * 3;
-  const tailY = snailY - (moveDy / len) * 3;
+  const snailEl = document.getElementById('snail-img');
+  const flipped = snailEl && snailEl.style.transform.includes('scaleX(-1)');
+  const tailOffsetX = flipped ? -(snailSizeW * 0.45) : (snailSizeW * 0.45);
+  const tailOffsetY = snailSizeW * 0.2;
 
-  // 너무 가까우면 스킵 (간격 1.5% 이상)
+  const tailX = snailX + tailOffsetX;
+  const tailY = snailY + tailOffsetY;
+
+  // 간격 체크
   if (poopPath.length > 0) {
     const last = poopPath[poopPath.length - 1];
     const dist = Math.hypot(tailX - last.x, tailY - last.y);
     if (dist < 1.5) return;
   }
+
   poopPath.push({ x: tailX, y: tailY });
-
-  // 실시간으로 현재 경로도 즉시 렌더
-  renderCurrentPoop();
-}
-
-function renderCurrentPoop() {
-  const wrap = document.getElementById('terrarium-wrap');
-  const svg  = document.getElementById('poop-svg');
-  if (!wrap || !svg) return;
-
-  const W = wrap.offsetWidth  || wrap.clientWidth  || 400;
-  const H = wrap.offsetHeight || wrap.clientHeight || 300;
-  if (!W || !H) return;
-
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('width', W);
-  svg.setAttribute('height', H);
-  svg.style.width  = W + 'px';
-  svg.style.height = H + 'px';
-
-  // 완성된 세그먼트 + 현재 진행 중인 경로 합쳐서 렌더
-  const allSegs = [...poopSegments];
-  if (poopPath.length >= 2) {
-    const currentColor = lastFoodType === 'carrot' ? '#b85c10' : '#3d7a20';
-    allSegs.push({ points: poopPath, color: currentColor });
-  }
-
-  svg.innerHTML = allSegs.map(seg => buildPoopPath(seg, W, H)).join('');
-}
-
-function buildPoopPath(seg, W, H) {
-  if (seg.points.length < 2) return '';
-
-  const pts = seg.points.map(p => ({
-    px: (p.x / 100) * W,
-    py: (p.y / 100) * H
-  }));
-
-  // Quadratic bezier smooth curve (구불구불)
-  let d = `M ${pts[0].px.toFixed(1)} ${pts[0].py.toFixed(1)}`;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const xc = (pts[i].px + pts[i + 1].px) / 2;
-    const yc = (pts[i].py + pts[i + 1].py) / 2;
-    d += ` Q ${pts[i].px.toFixed(1)} ${pts[i].py.toFixed(1)} ${xc.toFixed(1)} ${yc.toFixed(1)}`;
-  }
-  // 마지막 점
-  d += ` L ${pts[pts.length-1].px.toFixed(1)} ${pts[pts.length-1].py.toFixed(1)}`;
-
-  return `<path d="${d}" stroke="${seg.color}" stroke-width="4" stroke-dasharray="2 1"
-    stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.88"/>`;
+  createPoopDot(tailX, tailY, poopColor);
 }
 
 function tickPoop(dt) {
@@ -1412,13 +1388,9 @@ function tickPoop(dt) {
 function finishPoop() {
   if (!poopActive) return;
   poopActive = false;
-
   if (poopPath.length >= 2) {
-    const color = lastFoodType === 'carrot' ? '#b85c10' : '#3d7a20';
-    poopSegments.push({ points: [...poopPath], color });
+    poopSegments.push({ points: [...poopPath], color: poopColor });
     poopCount++;
-    renderAllPoop();
-
     if (poopCount >= 7 && !needsCleaning) {
       needsCleaning = true;
       setTimeout(() => showCleaningPrompt(), 500);
@@ -1427,23 +1399,17 @@ function finishPoop() {
   poopPath = [];
 }
 
-function renderAllPoop() {
-  const wrap = document.getElementById('terrarium-wrap');
-  const svg  = document.getElementById('poop-svg');
-  if (!wrap || !svg) return;
-
-  const W = wrap.offsetWidth  || wrap.clientWidth  || 400;
-  const H = wrap.offsetHeight || wrap.clientHeight || 300;
-  if (!W || !H) return;
-
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('width', W);
-  svg.setAttribute('height', H);
-  svg.style.width  = W + 'px';
-  svg.style.height = H + 'px';
-
-  svg.innerHTML = poopSegments.map(seg => buildPoopPath(seg, W, H)).join('');
+function cleanPoopLayer() {
+  const layer = document.getElementById('poop-layer');
+  if (layer) layer.innerHTML = '';
+  poopSegments = [];
+  poopCount = 0;
+  needsCleaning = false;
 }
+
+// renderAllPoop, renderCurrentPoop, buildPoopPath는 더 이상 사용 안 함
+function renderAllPoop() {}
+function renderCurrentPoop() {}
 
 function showCleaningPrompt() {
   let popup = document.getElementById('cleaning-popup');
@@ -1526,13 +1492,7 @@ function initCocoDragSnail(staticEl) {
 }
 
 function cleanTerrarium() {
-  // 똥 전부 제거
-  poopSegments = [];
-  poopCount = 0;
-  needsCleaning = false;
-  const svg = document.getElementById('poop-svg');
-  if (svg) svg.innerHTML = '';
-  // 클리닝 팝업 닫기
+  cleanPoopLayer();
   const cp = document.getElementById('cleaning-popup');
   if (cp) cp.style.display = 'none';
   showToast('✨ 사육상자가 깨끗해졌어요!', '#e8f5e9', '#2e7d32');
@@ -1643,8 +1603,8 @@ function resetGame() {
   growth1Done = false; growth2Done = false; snailSizeW = 11;
   lastFoodType = null; poopCount = 0; poopActive = false;
   poopPath = []; poopSegments = []; needsCleaning = false;
-  const svgR = document.getElementById('poop-svg');
-  if (svgR) svgR.innerHTML = '';
+  const layerR = document.getElementById('poop-layer');
+  if (layerR) layerR.innerHTML = '';
   gameState = { step:0, selectedBox:null, selectedHide:null, humidity:0, hunger:100, happiness:100, snailName:'' };
 
   // 달팽이 숨김
